@@ -23,14 +23,11 @@
     "@stablelib/blake2b": "^1.0.0",
     "@stablelib/cbor": "^1.0.0",
     "@stablelib/ed25519": "^1.0.1",
-    "@stablelib/random": "^1.0.0",
     "@stablelib/x25519": "^1.0.0",
     "@stablelib/xchacha20poly1305": "^1.0.0",
     "canonicalize": "^1.0.1",
-    "debug": "^4.1.1",
     "esm": "^3.2.25",
-    "multibase": "^0.7.0",
-    "util.promisify": "^1.0.1"
+    "multibase": "^0.7.0"
   },
   "gitHead": "95ce55e47e7148e8a8ad368510ddbac4c654f121"
 }
