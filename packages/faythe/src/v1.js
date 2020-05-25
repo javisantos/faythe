@@ -54,6 +54,7 @@ export function randomBytes (bytes) {
     return crypto.randomBytes(bytes)
   }
 }
+
 const authEncryptErrorHandler = function (args) {
   // theirPublicKeyObject, myPrivateKeyObject, data, nonce
   if (!args[0] || args[0].type !== 'public') throw new TypeError('First argument must be a publicKeyObject')
