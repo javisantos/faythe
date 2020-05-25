@@ -11,7 +11,7 @@ npm install faythe --save
 ## Usage
 
 ```js
-const faythe = require('.').v1
+const faythe = require('faythe').v1
 
 const Alice = faythe.generateKeyPair()
 const Bob = faythe.generateKeyPair()
