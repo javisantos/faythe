@@ -1,0 +1,6 @@
+node_modules
+coverage
+.nyc_output
+lerna-debug.log
+v2*
+log*

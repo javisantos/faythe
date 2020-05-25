@@ -1,0 +1,18 @@
+{
+    "require": [
+        "esm"
+    ],
+    "all": true,
+    "exclude": [
+        "node_modules"
+    ],
+    "include": [
+        "src/v1.js"
+    ],
+    "check-coverage": true,
+    "per-file": true,
+    "branches": 85,
+    "lines": 85,
+    "functions": 85,
+    "statements": 85
+}
