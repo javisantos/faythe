@@ -1,6 +1,13 @@
 {
   "name": "root",
   "private": true,
+  "author": "Javi Santos <mail@javisantos.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/javisantos/faythe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javisantos/faythe.git"
+  },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^12.0.0",
     "@rollup/plugin-node-resolve": "^8.0.0",

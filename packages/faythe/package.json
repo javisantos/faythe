@@ -2,6 +2,13 @@
   "name": "faythe",
   "version": "1.0.1-alpha.0",
   "description": "An easy crypto library to send messages using key encapsulation. A courier for Alice and Bob.",
+  "author": "Javi Santos <mail@javisantos.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/javisantos/faythe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javisantos/faythe.git"
+  },
   "main": "index.js",
   "module": "src/main.js",
   "browser": "dist/faythe.js",
@@ -12,8 +19,6 @@
     "build": "rollup -c -m --compact",
     "dev": "rollup -c -w -m"
   },
-  "author": "Javi Santos <mail@javisantos.com>",
-  "license": "MIT",
   "dependencies": {
     "@stablelib/blake2b": "^1.0.0",
     "@stablelib/cbor": "^1.0.0",
@@ -27,5 +32,5 @@
     "multibase": "^0.7.0",
     "util.promisify": "^1.0.1"
   },
-  "gitHead": "a8c54446603f3639464483515f841c5670303ac1"
+  "gitHead": "10c153d78251f9076d2086f9388aec1f442c3184"
 }
