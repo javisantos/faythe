@@ -1,6 +1,6 @@
 {
   "name": "faythe",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "An easy crypto library to send messages using key encapsulation. A courier for Alice and Bob.",
   "author": "Javi Santos <mail@javisantos.com>",
   "license": "MIT",
@@ -16,8 +16,8 @@
     "test": "tape -r esm test/v1.js | tap-spec",
     "coverage": "rimraf node_modules/.cache && nyc --reporter=text-summary --reporter=html tape test/v1.js",
     "lint": "eslint src test",
-    "build": "rollup -c -m --compact",
-    "build:browserify": "browserify main.js -o dist/faythe.js -t [ babelify --presets [ @babel/preset-env ] --plugins [ @babel/plugin-transform-runtime ] ]",
+    "build": "rollup -c -m --compact && npm run build:browserify",
+    "build:browserify": "browserify main.js -o dist/faythe-browserify.js -t [ babelify --presets [ @babel/preset-env ] --plugins [ @babel/plugin-transform-runtime ] ]",
     "dev": "rollup -c -w -m"
   },
   "dependencies": {
@@ -28,7 +28,7 @@
     "@stablelib/xchacha20poly1305": "^1.0.0",
     "canonicalize": "^1.0.1",
     "esm": "^3.2.25",
-    "multibase": "^0.7.0"
+    "multibase": "^1.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.10.2",
@@ -48,7 +48,7 @@
     "eslint-plugin-standard": "^4.0.1",
     "lerna": "^3.22.1",
     "nyc": "^15.1.0",
-    "rollup": "^2.16.1",
+    "rollup": "^2.17.0",
     "rollup-plugin-browserify-transform": "^1.0.1",
     "rollup-plugin-node-globals": "^1.4.0",
     "rollup-plugin-node-polyfills": "^0.2.1",
