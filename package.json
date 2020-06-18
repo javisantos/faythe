@@ -1,6 +1,7 @@
 {
-  "name": "root",
-  "private": true,
+  "name": "faythe",
+  "version": "1.0.2",
+  "description": "An easy crypto library to send messages using key encapsulation. A courier for Alice and Bob.",
   "author": "Javi Santos <mail@javisantos.com>",
   "license": "MIT",
   "homepage": "https://github.com/javisantos/faythe",
@@ -8,31 +9,52 @@
     "type": "git",
     "url": "git+https://github.com/javisantos/faythe.git"
   },
+  "main": "index.js",
+  "module": "main.js",
+  "browser": "dist/faythe.js",
+  "scripts": {
+    "test": "tape -r esm test/v1.js | tap-spec",
+    "coverage": "rimraf node_modules/.cache && nyc --reporter=text-summary --reporter=html tape test/v1.js",
+    "lint": "eslint src test",
+    "build": "rollup -c -m --compact",
+    "build:browserify": "browserify main.js -o dist/faythe.js -t [ babelify --presets [ @babel/preset-env ] --plugins [ @babel/plugin-transform-runtime ] ]",
+    "dev": "rollup -c -w -m"
+  },
+  "dependencies": {
+    "@stablelib/blake2b": "^1.0.0",
+    "@stablelib/cbor": "^1.0.0",
+    "@stablelib/ed25519": "^1.0.1",
+    "@stablelib/x25519": "^1.0.0",
+    "@stablelib/xchacha20poly1305": "^1.0.0",
+    "canonicalize": "^1.0.1",
+    "esm": "^3.2.25",
+    "multibase": "^0.7.0"
+  },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^12.0.0",
-    "@rollup/plugin-node-resolve": "^8.0.0",
-    "@rollup/plugin-replace": "^2.3.2",
-    "eslint": "^7.1.0",
+    "@babel/core": "^7.10.2",
+    "@babel/plugin-transform-runtime": "^7.10.1",
+    "@babel/preset-env": "^7.10.2",
+    "@rollup/plugin-commonjs": "^13.0.0",
+    "@rollup/plugin-node-resolve": "^8.0.1",
+    "@rollup/plugin-replace": "^2.3.3",
+    "babelify": "^10.0.0",
+    "browserify": "^16.5.1",
+    "eslint": "^7.2.0",
     "eslint-config-standard": "^14.1.1",
     "eslint-plugin-html": "^6.0.2",
-    "eslint-plugin-import": "^2.20.2",
+    "eslint-plugin-import": "^2.21.2",
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^4.2.1",
     "eslint-plugin-standard": "^4.0.1",
-    "lerna": "^3.22.0",
-    "nyc": "^15.0.1",
-    "rollup": "^2.10.9",
+    "lerna": "^3.22.1",
+    "nyc": "^15.1.0",
+    "rollup": "^2.16.1",
+    "rollup-plugin-browserify-transform": "^1.0.1",
+    "rollup-plugin-node-globals": "^1.4.0",
     "rollup-plugin-node-polyfills": "^0.2.1",
     "rollup-plugin-terser": "^6.1.0",
     "tap-nyc": "^1.0.3",
     "tap-spec": "^5.0.0",
     "tape": "^5.0.1"
-  },
-  "scripts": {
-    "test": "lerna exec -- npm run test",
-    "build": "lerna exec -- npm run build"
-  },
-  "dependencies": {
-    "faythe": "file:packages/faythe"
   }
 }

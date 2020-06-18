@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- <link href="https://unpkg.com/tailwindcss@^1.0/dist/tailwind.min.css" rel="stylesheet"> -->
+    <link href="./css/microcss-1.1.0/dist/microcss.min.css" rel="stylesheet">
+    <title>Demo</title>
+</head>
+
+<body class="bg-gray-300 font-mono">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"></script>
+    
+    <div class="row" style="padding: 10px; margin:auto">
+    <div id="app" class="col-12" >
+        <input class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none" type="text" v-model="message"/>
+        <button @click="handleEncrypt" class="primary">
+          Pack Message
+        </button>
+        <textarea rows="13" class="shadow block mt-5 w-full"  v-model="encrypted"> </textarea>
+        <textarea rows="8" class="shadow block mt-5 w-full"  v-model="compressed"> </textarea>
+    </div>
+   </div>
+
+    <script type="module">
+      
+      import * as faythe from '../dist/faythe.js'
+      console.log('fay', window.faythe)
+      // eslint-disable-next-line
+        new Vue({
+        el: '#app',
+        data: {
+          message: 'Hello',
+          encrypted: '',
+          packed: {},
+          alice: {},
+          bob: {},
+          compressed: ''
+        },
+        created () {
+          console.log('faythe', faythe)
+          this.alice = faythe.generateKeyPair()
+          this.bob = faythe.generateKeyPair()
+          this.logthis()
+        },
+        methods: {
+          handleEncrypt () {
+            this.packed = faythe.packMessage(this.message, [this.bob.publicKey], this.alice, true)
+            this.encrypted = JSON.stringify(this.packed, null, 2)
+            this.compressed = faythe.compact(this.packed)
+          },
+          async logthis () {
+      
+          }
+        }
+      })
+    </script>
+</body>
+
+</html>

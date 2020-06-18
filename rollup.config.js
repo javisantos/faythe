@@ -14,12 +14,16 @@ export default [
         format: 'es'
       }],
     plugins: [
-
-      resolve({
-        preferBuiltins: true
-      }),
       commonjs(),
-      nodePolyfills(),
+      resolve({
+        preferBuiltins: false,
+        browser: true,
+        jsnext: true,
+        main: true
+      }),
+      nodePolyfills({
+        buffer: false
+      }),
 
       replace({ 'process.browser': !!process.env.BROWSER }),
       terser()

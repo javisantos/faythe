@@ -4,11 +4,6 @@ require = require('esm')(module)
 const test = require('tape')
 const faythe = require('../src/v1')
 
-var tapSpec = require('tap-spec')
-test.createStream()
-  .pipe(tapSpec())
-  .pipe(process.stdout)
-
 let alice, bob, charlie
 
 ['node', 'browser'].forEach((env) => {
@@ -37,26 +32,10 @@ let alice, bob, charlie
     t.end()
   })
 
-  test('derive (' + env + ')', (t) => {
-    const masterkey = faythe.randomBytes(32)
-    const derived = faythe.derive('testspace', masterkey, 'derivetestkey')
-    const derived2 = faythe.derive('testspace', masterkey, 'derivetestkey')
-    t.equal(derived.length, faythe.RANDOMBYTES, `Should be ${faythe.RANDOMBYTES} bytes long`)
-    t.equal(derived.toString('hex'), derived2.toString('hex'), 'Should always derive the same key')
-    t.end()
-  })
-
   test('generateKeyPair (' + env + ')', (t) => {
     const kp = faythe.generateKeyPair()
-    t.equal(kp.publicKey.export({ type: 'spki', format: 'der' }).length, faythe.PUBLICKEYBYTES, `Should be ${faythe.PUBLICKEYBYTES} bytes long`)
-    t.equal(kp.privateKey.export({ type: 'pkcs8', format: 'der' }).length, faythe.PRIVATEKEYBYTES, `Should be ${faythe.PRIVATEKEYBYTES} bytes long`)
-    t.end()
-  })
-
-  test('generateVerificationKeyPair (' + env + ')', (t) => {
-    const kp = faythe.generateVerificationKeyPair()
-    t.equal(kp.publicKey.export({ type: 'spki', format: 'der' }).length, faythe.PUBLICKEYBYTES, `Should be ${faythe.PUBLICKEYBYTES} bytes long`)
-    t.equal(kp.privateKey.export({ type: 'pkcs8', format: 'der' }).length, 48, `Should be ${faythe.PRIVATEKEYBYTES} bytes long`)
+    t.equal(kp.publicKey.length, faythe.PUBLICKEYBYTES, `Should be ${faythe.PUBLICKEYBYTES} bytes long`)
+    t.equal(kp.privateKey.length, faythe.PRIVATEKEYBYTES, `Should be ${faythe.PRIVATEKEYBYTES} bytes long`)
     t.end()
   })
 
@@ -64,46 +43,6 @@ let alice, bob, charlie
     const sharedKey = faythe.precomputeSharedKey(alice.privateKey, bob.publicKey)
 
     t.equal(sharedKey.length, 32, 'Shoud be 32 bytes long')
-    t.end()
-  })
-
-  test('AuthEncrypt (' + env + ')', (t) => {
-    const data = 'Hello world'
-    const nonce = faythe.randomBytes(faythe.NONCEBYTES)
-    const encrypted = faythe.authEncrypt(bob.publicKey, alice.privateKey, data, nonce)
-    const decrypted = faythe.authDecrypt(bob.publicKey, alice.privateKey, encrypted, nonce)
-    t.equal(decrypted.toString(), 'Hello world', 'Should encrypt and decrypt')
-
-    try {
-      faythe.authEncrypt(bob.publicKey, alice.privateKey, data)
-    } catch (error) {
-      t.equal(error.message, `Nonce must be a Buffer of ${faythe.NONCEBYTES} length`, 'Should throw if no nonce')
-    }
-
-    try {
-      faythe.authEncrypt('invalid', alice.privateKey, data, nonce)
-    } catch (error) {
-      t.equal(error.message, 'First argument must be a publicKeyObject', 'Should throw if invalid publicKeyObject')
-    }
-
-    try {
-      faythe.authEncrypt(bob.publicKey, 'invalid', data, nonce)
-    } catch (error) {
-      t.equal(error.message, 'Second argument must be a privateKeyObject', 'Should throw if invalid privateKeyObject')
-    }
-
-    try {
-      faythe.authEncrypt(bob.publicKey, alice.privateKey, { invalid: true }, nonce)
-    } catch (error) {
-      t.equal(error.message, 'Data must be a string or Buffer', 'Should throw if data is not string or Buffer')
-    }
-
-    try {
-      faythe.authEncrypt(bob.publicKey, alice.privateKey, data, faythe.randomBytes(1))
-    } catch (error) {
-      t.equal(error.message, `Nonce must be a Buffer of ${faythe.NONCEBYTES} length`, `Should throw if nonce is not ${faythe.NONCEBYTES} length`)
-    }
-
     t.end()
   })
 
@@ -147,6 +86,46 @@ let alice, bob, charlie
       faythe.secretEncrypt(sharedKey, data)
     } catch (error) {
       t.equal(error.message, `Nonce must be a Buffer of ${faythe.NONCEBYTES} length`, 'Should throw if no nonce')
+    }
+
+    t.end()
+  })
+
+  test('AuthEncrypt (' + env + ')', (t) => {
+    const data = 'Hello world'
+    const nonce = faythe.randomBytes(faythe.NONCEBYTES)
+    const encrypted = faythe.authEncrypt(bob.publicKey, alice.privateKey, data, nonce)
+    const decrypted = faythe.authDecrypt(bob.publicKey, alice.privateKey, encrypted, nonce)
+    t.equal(decrypted.toString(), 'Hello world', 'Should encrypt and decrypt')
+
+    try {
+      faythe.authEncrypt(bob.publicKey, alice.privateKey, data)
+    } catch (error) {
+      t.equal(error.message, `Nonce must be a Buffer of ${faythe.NONCEBYTES} length`, 'Should throw if no nonce')
+    }
+
+    try {
+      faythe.authEncrypt('invalid', alice.privateKey, data, nonce)
+    } catch (error) {
+      t.equal(error.message, 'First argument must be a publicKey', 'Should throw if invalid publicKey')
+    }
+
+    try {
+      faythe.authEncrypt(bob.publicKey, 'invalid', data, nonce)
+    } catch (error) {
+      t.equal(error.message, 'Second argument must be a privateKey', 'Should throw if invalid privateKey')
+    }
+
+    try {
+      faythe.authEncrypt(bob.publicKey, alice.privateKey, { invalid: true }, nonce)
+    } catch (error) {
+      t.equal(error.message, 'Data must be a string or Buffer', 'Should throw if data is not string or Buffer')
+    }
+
+    try {
+      faythe.authEncrypt(bob.publicKey, alice.privateKey, data, faythe.randomBytes(1))
+    } catch (error) {
+      t.equal(error.message, `Nonce must be a Buffer of ${faythe.NONCEBYTES} length`, `Should throw if nonce is not ${faythe.NONCEBYTES} length`)
     }
 
     t.end()
@@ -229,8 +208,7 @@ let alice, bob, charlie
   test('Compact (' + env + ')', (t) => {
     const message = 'Hello World'
     const packed = faythe.packMessage(message, [bob.publicKey])
-    const packeds = faythe.packMessage(message, [bob.publicKey], faythe.generateIdentity(), true)
-    // const unpacked = faythe.unpackMessage(packed, bob)
+    const packeds = faythe.packMessage(message, [bob.publicKey], faythe.generateKeyPair(), true)
     const compacted = faythe.compact(packed)
     const uncompacted = faythe.uncompact(compacted)
     const compacteds = faythe.compact(packeds)
@@ -241,33 +219,33 @@ let alice, bob, charlie
   })
 
   test('Sign (' + env + ')', (t) => {
-    const alice = faythe.generateIdentity()
+    const alice = faythe.generateKeyPair()
     const data = 'Hello World'
     const signature = faythe.sign(alice, data)
-    const verified = faythe.verify(alice.verPublicKey, data, signature)
+    const verified = faythe.verify(alice.publicKey, data, signature)
     t.assert(verified, 'Should sign and verify')
     const salt = faythe.randomBytes(faythe.SALTBYTES)
     const signaturesalt = faythe.sign(alice, data, salt)
-    const verifiedsalt = faythe.verify(alice.verPublicKey, data, signaturesalt, salt)
+    const verifiedsalt = faythe.verify(alice.publicKey, data, signaturesalt, salt)
     t.assert(verifiedsalt, 'Should sign and verify with salt')
     t.end()
   })
 
   test('Sign an object (' + env + ')', (t) => {
-    const alice = faythe.generateIdentity()
+    const alice = faythe.generateKeyPair()
     const data = { ops: '1', greetings: 'Hello World' }
     const signature = faythe.sign(alice, data)
-    const verified = faythe.verify(alice.verPublicKey, { greetings: 'Hello World', ops: '1' }, signature)
+    const verified = faythe.verify(alice.publicKey, { greetings: 'Hello World', ops: '1' }, signature)
     t.assert(verified, 'Should sign and verify a disordered object')
     const salt = faythe.randomBytes(faythe.SALTBYTES)
     const signaturesalt = faythe.sign(alice, data, salt)
-    const verifiedsalt = faythe.verify(alice.verPublicKey, data, signaturesalt, salt)
+    const verifiedsalt = faythe.verify(alice.publicKey, data, signaturesalt, salt)
     t.assert(verifiedsalt, 'Should sign and verify with salt')
     t.end()
   })
 
   test('Pack non repudiable message (' + env + ')', (t) => {
-    const kp = faythe.generateIdentity()
+    const kp = faythe.generateKeyPair()
     const message = 'Hello World'
     const packed = faythe.packMessage(message, [bob.publicKey], kp, true)
     const unpacked = faythe.unpackMessage(packed, bob)
@@ -282,42 +260,6 @@ let alice, bob, charlie
     packed.signature = 'invalid'
     const unpackedinvalid = faythe.unpackMessage(packed, bob)
     t.equal(unpackedinvalid, false, 'Should not unpack if signature is invalid')
-    t.end()
-  })
-
-  test('Export keypair (' + env + ')', (t) => {
-    // if (process.browser) return t.end()
-    const exported = faythe.exportKeyPair(alice)
-    t.equal(exported.publicKey.length, faythe.PUBLICKEYBYTES, `Should be ${faythe.PUBLICKEYBYTES} bytes long`)
-    t.equal(exported.privateKey.length, faythe.PRIVATEKEYBYTES, `Should be ${faythe.PRIVATEKEYBYTES} bytes long`)
-    t.end()
-  })
-
-  test('Import keypair (' + env + ')', (t) => {
-    // if (process.browser) return t.end()
-    const exported = faythe.exportKeyPair(alice)
-    const exportedpp = faythe.exportKeyPair(alice, { passphrase: 'secret' })
-    t.equal(exportedpp.publicKey.length, faythe.PUBLICKEYBYTES, `Should be ${faythe.PUBLICKEYBYTES} bytes long`)
-    t.equal(exportedpp.privateKey.length, faythe.PRIVATEKEYBYTES, `Should be ${faythe.PRIVATEKEYBYTES} bytes long`)
-
-    const importedpp = faythe.importKeyPair({
-      publicKey: exportedpp.publicKey,
-      privateKey: exportedpp.privateKey
-    }, { passphrase: 'secret' })
-    t.equal(importedpp.publicKey.type, 'public', 'Should be public')
-    t.equal(importedpp.privateKey.type, 'private', 'Should be private')
-
-    const imported = faythe.importKeyPair({
-      publicKey: exported.publicKey,
-      privateKey: exported.privateKey
-    })
-    t.equal(imported.publicKey.type, 'public', 'Should be public')
-    t.equal(imported.privateKey.type, 'private', 'Should be private')
-
-    if (env === 'browser') {
-      t.equal(imported.publicKey.key, imported.publicKey.export(), 'Should be the same1')
-      t.equal(imported.privateKey.key, imported.privateKey.export(), 'Should be the same2')
-    }
     t.end()
   })
 })
