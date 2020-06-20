@@ -425,47 +425,6 @@ export function unpackMessage (packed, recipientKeysObject) {
   return decrypted
 }
 
-export function compact (packedMessage) {
-  packedMessage = { ...packedMessage }
-  const p = JSON.parse(decode(packedMessage.protected).toString())
-  const op = p.alg
-  const signature = packedMessage.signature || null
-
-  delete packedMessage.protected
-
-  const payload = Buffer.from(serialize({
-    ...packedMessage,
-    recipients: p.recipients
-  }))
-
-  return signature
-    ? `v${VERSION}.${op}.${multibase.encode(ENCODER, payload)}.${signature}`
-    : `v${VERSION}.${op}.${multibase.encode(ENCODER, payload)}`
-}
-
-export function uncompact (compressed) {
-  const parts = compressed.split('.')
-  const version = parts[0]
-  const op = parts[1]
-  const payload = parts[2]
-  const signature = parts[3] || null
-  const deserialized = deserialize(decode(payload))
-
-  const decoded = {
-    protected: encode(JSON.stringify({
-      enc: CIPHERALGID,
-      typ: `FAYTHE/${version}`,
-      alg: op,
-      recipients: deserialized.recipients
-    })).toString(),
-    ...deserialized
-  }
-
-  if (signature) decoded.signature = signature
-  delete decoded.recipients
-  return decoded
-}
-
 export function keyObjectToRawKey (keyObject) {
   if (keyObject.type === 'public') {
     return keyObject.export({

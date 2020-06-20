@@ -205,19 +205,6 @@ let alice, bob, charlie
     t.end()
   })
 
-  test('Compact (' + env + ')', (t) => {
-    const message = 'Hello World'
-    const packed = faythe.packMessage(message, [bob.publicKey])
-    const packeds = faythe.packMessage(message, [bob.publicKey], faythe.generateKeyPair(), true)
-    const compacted = faythe.compact(packed)
-    const uncompacted = faythe.uncompact(compacted)
-    const compacteds = faythe.compact(packeds)
-    const uncompacteds = faythe.uncompact(compacteds)
-    t.equal(compacted, faythe.compact(uncompacted), 'Should compact and uncompact')
-    t.equal(compacteds, faythe.compact(uncompacteds), 'Should compact and uncompact with signature')
-    t.end()
-  })
-
   test('Sign (' + env + ')', (t) => {
     const alice = faythe.generateKeyPair()
     const data = 'Hello World'
