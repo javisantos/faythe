@@ -1,7 +1,7 @@
 
 import crypto from 'crypto'
 import { XChaCha20Poly1305 } from '@stablelib/xchacha20poly1305'
-import { hash as blake2b } from '@stablelib/blake2b'
+import { hash as blake2b, BLAKE2b } from '@stablelib/blake2b'
 import * as ed25519 from '@stablelib/ed25519'
 import * as x25519 from '@stablelib/x25519'
 import * as random from '@stablelib/random'
@@ -38,6 +38,8 @@ export const X25519PKASN1 = Buffer.from('302a300506032b656e032100', 'hex')
 export const X25519SKASN1 = Buffer.from('302e020100300506032b656e04220420', 'hex')
 export const PKASN1LENGTH = 12
 export const SKASN1LENGTH = 16
+
+const INCEPTIONKEY = Symbol('inceptionkey')
 
 const encode = (buffer) => multibase.encode(ENCODER, buffer)
 const decode = (bufOrString) => multibase.decode(bufOrString)
@@ -87,6 +89,54 @@ export function generateKeyPair () {
   }
 }
 
+export class Identity {
+  constructor (masterkey, namespace, name) {
+    this.namespace = namespace || 'faythe'
+    this.name = name || 'identity'
+    this[INCEPTIONKEY] = masterkey ? Buffer.alloc(masterkey.length < RANDOMBYTES
+      ? RANDOMBYTES
+      : masterkey.length, Buffer.isBuffer(masterkey)
+      ? masterkey : Buffer.from(masterkey))
+      : randomBytes(RANDOMBYTES)
+    const seed = derive(this[INCEPTIONKEY], this.namespace, this.name, 'register')
+    this[INCEPTIONKEY].fill(0)
+    const keyPair = ed25519.generateKeyPairFromSeed(seed)
+    seed.fill(0)
+    this.verPublicKey = Buffer.from(keyPair.publicKey)
+    this.verPrivateKey = Buffer.from(keyPair.secretKey)
+    this.encPublicKey = Buffer.from(ed25519.convertPublicKeyToX25519(this.publicKey))
+    this.encPrivateKey = Buffer.from(ed25519.convertSecretKeyToX25519(this.privateKey))
+  }
+
+  get publicKey () {
+    return this.verPublicKey
+  }
+
+  get privateKey () {
+    return this.verPrivateKey
+  }
+
+  link (identity) {
+    const theirPublicKey = ed25519.convertPublicKeyToX25519(identity.publicKey || identity)
+    const sharedKey = hash(x25519.sharedKey(this.encPrivateKey, theirPublicKey, true))
+    return new Identity(sharedKey, this.namespace, identity.name || 'link')
+  }
+
+  toJson () {
+    return {
+      id: encode(this.publicKey).toString().substring(1, 8),
+      type: 'Ed25519VerificationKey2018',
+      controller: '#id',
+      publicKeyMultiBase: encode(this.publicKey).toString(),
+      publicKeyBase64url: encode(this.publicKey).toString().substring(1),
+      publicKeyBase64: this.publicKey.toString('base64'),
+      publicKeyHex: this.publicKey.toString('hex'),
+      publicKeyBase58: multibase.encode('base58btc', this.publicKey).toString().substring(1)
+
+    }
+  }
+}
+
 export function hash (data) {
   if (process.browser) {
     return Buffer.from(blake2b(data)).slice(0, HASHBYTES)
@@ -95,6 +145,15 @@ export function hash (data) {
     hasher.update(data)
     return hasher.digest().slice(0, HASHBYTES)
   }
+}
+
+export function derive (namespace, key, name, personalization) {
+  const h = new BLAKE2b(RANDOMBYTES, { key, personalization: Buffer.alloc(16, Buffer.isBuffer(personalization) ? personalization : Buffer.from(personalization)) })
+  h.update(Buffer.isBuffer(namespace) ? namespace : Buffer.from(namespace))
+  h.update(Buffer.isBuffer(name) ? name : Buffer.from(name))
+  const digest = h.digest()
+  h.clean()
+  return Buffer.from(digest)
 }
 
 export function precomputeSharedKey (myPrivateKey, theirPublicKey) {
