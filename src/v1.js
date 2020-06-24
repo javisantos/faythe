@@ -310,10 +310,9 @@ export function packMessage (message, recipientsPublicKeysObject, senderKeysObje
         )).toString()
       } else {
         const publicKey = senderKeysObject.publicKey
-        const verPublicKey = senderKeysObject.verPublicKey || publicKey
         sender = encode(this.anonEncrypt(
           recipientPublicKeyObject,
-          Buffer.concat([Buffer.from(publicKey), Buffer.from(verPublicKey)])
+          Buffer.from(publicKey)
         )).toString()
       }
       return {
@@ -396,9 +395,8 @@ export function unpackMessage (packed, recipientKeysObject) {
           decode(packed.iv),
           Buffer.from(packed.protected))
         if (packed.signature) {
-          const senderVerPublicKey = senderPublicKey.slice(PUBLICKEYBYTES, PUBLICKEYBYTES * 2)
           try {
-            const verified = this.verify(senderVerPublicKey, decrypted, decode(packed.signature))
+            const verified = this.verify(senderPublicKey, decrypted, decode(packed.signature))
             if (!verified) decrypted = false
           } catch (error) {
             decrypted = false

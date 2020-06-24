@@ -36043,8 +36043,7 @@ function packMessage(message, recipientsPublicKeysObject, senderKeysObject) {
         sender = encode(_this.anonEncrypt(recipientPublicKeyObject, _buffer.Buffer.from(senderKeysObject.publicKey))).toString();
       } else {
         var publicKey = senderKeysObject.publicKey;
-        var verPublicKey = senderKeysObject.verPublicKey || publicKey;
-        sender = encode(_this.anonEncrypt(recipientPublicKeyObject, _buffer.Buffer.concat([_buffer.Buffer.from(publicKey), _buffer.Buffer.from(verPublicKey)]))).toString();
+        sender = encode(_this.anonEncrypt(recipientPublicKeyObject, _buffer.Buffer.from(publicKey))).toString();
       }
 
       return {
@@ -36115,10 +36114,8 @@ function unpackMessage(packed, recipientKeysObject) {
         decrypted = _this2.secretDecrypt(cek, _buffer.Buffer.concat([decode(packed.tag), decode(packed.ciphertext)]), decode(packed.iv), _buffer.Buffer.from(packed["protected"]));
 
         if (packed.signature) {
-          var senderVerPublicKey = senderPublicKey.slice(PUBLICKEYBYTES, PUBLICKEYBYTES * 2);
-
           try {
-            var verified = _this2.verify(senderVerPublicKey, decrypted, decode(packed.signature));
+            var verified = _this2.verify(senderPublicKey, decrypted, decode(packed.signature));
 
             if (!verified) decrypted = false;
           } catch (error) {
