@@ -72,11 +72,11 @@ Returns a shared secret between a public and private keys. Uses `diffieHellman`.
 
 Authenticated (asymmetric) encryption between a public and private keys. The `nonce` is randomly generated if not present, then, concatenated to de begining of the ciphertext. Uses `XChaCha20Poly1305`.
 
-#### `authDecrypt (theirPublicKeyObject, myPrivateKeyObject, data, [nonce])
+#### `faythe.authDecrypt (theirPublicKeyObject, myPrivateKeyObject, data, [nonce])`
 
 Authenticated (asymmetric) decryption between a public and private keys. If `nonce` is not present, is extracted from the ciphertext.
 
-#### `faythe.secretEncrypt (sharedSecret, data, [nonce], [AAD])
+#### `faythe.secretEncrypt (sharedSecret, data, [nonce], [AAD])`
 
 Anonymous (symmetric) encryption usin a common `sharedSecret`. `AAD` for addional data. Uses `XChaCha20Poly1305`.
 
