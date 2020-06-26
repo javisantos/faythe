@@ -1,4 +1,4 @@
-[![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=master)](https://coveralls.io/github/javisantos/faythe?branch=master)
+[![Build Status](https://travis-ci.org/javisantos/faythe.svg?branch=master)](https://travis-ci.org/javisantos/faythe) [![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=master)](https://coveralls.io/github/javisantos/faythe?branch=master)
 
 # Faythe
 
