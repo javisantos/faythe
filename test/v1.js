@@ -249,4 +249,39 @@ let alice, bob, charlie
     t.equal(unpackedinvalid, false, 'Should not unpack if signature is invalid')
     t.end()
   })
+
+  test('Derive (' + env + ')', (t) => {
+    const derived = faythe.derive(Buffer.alloc(32, 'test'), 'Alice2', 'test')
+    t.deepEqual(derived.toString('hex'), '61b109ff5f3ba18fe1de971188fd650c37c52344e6cac33b4a47b6da9121c819', 'Should derive a key')
+    t.end()
+  })
+
+  test('Identity toJson (' + env + ')', (t) => {
+    const Alice = new faythe.Identity()
+    t.deepEqual(Alice.toJson().type, 'Ed25519VerificationKey2018', 'Should return a Ed25519VerificationKey2018')
+    t.end()
+  })
+
+  test('Identity keyExchange post-quantum (' + env + ')', (t) => {
+    const Alice = new faythe.Identity()
+    const Bob = new faythe.Identity()
+
+    const AlicesOffer = Alice.offer('Bob')
+    const BobAccept = Bob.accept(AlicesOffer, 'Alice')
+
+    Alice.finish(BobAccept, 'Bob')
+
+    t.deepEqual(Alice.sharedKeys.get('Bob'), Bob.sharedKeys.get('Alice'), 'Should share the same key')
+    t.end()
+  })
+
+  test('Identity X25591 sharedKey (' + env + ')', (t) => {
+    const Alice = new faythe.Identity()
+    const Bob = new faythe.Identity()
+    const AlicesSharedKey = Alice.sharedKey(Bob)
+    const BobSharedKey = Bob.sharedKey(Alice.publicKey)
+
+    t.deepEqual(AlicesSharedKey, BobSharedKey, 'Should share the same key')
+    t.end()
+  })
 })

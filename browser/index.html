@@ -15,43 +15,42 @@
     <div class="row" style="padding: 10px; margin:auto">
     <div id="app" class="col-12" >
         <input class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none" type="text" v-model="message"/>
-        <button @click="handleEncrypt" class="primary">
+        <button @click="handleEncrypt" class="primary mb-5">
           Pack Message
         </button>
+
         <textarea rows="13" class="shadow block mt-5 w-full"  v-model="encrypted"> </textarea>
-        <textarea rows="8" class="shadow block mt-5 w-full"  v-model="compressed"> </textarea>
+        Decrypted:
+        <textarea rows="5" class="shadow block mt-5 w-full"  v-model="decrypted"> </textarea>
     </div>
    </div>
 
     <script type="module">
       
-      import * as faythe from '../dist/faythe.js'
-      console.log('fay', window.faythe)
-      // eslint-disable-next-line
+      import {v1 as faythe } from '../dist/faythe.js'
         new Vue({
         el: '#app',
         data: {
           message: 'Hello',
           encrypted: '',
+          decrypted: '',
           packed: {},
           alice: {},
           bob: {},
-          compressed: ''
         },
         created () {
           console.log('faythe', faythe)
-          this.alice = faythe.generateKeyPair()
-          this.bob = faythe.generateKeyPair()
-          this.logthis()
+          this.alice = new faythe.Identity()
+          this.bob = new faythe.Identity()
         },
         methods: {
           handleEncrypt () {
             this.packed = faythe.packMessage(this.message, [this.bob.publicKey], this.alice, true)
             this.encrypted = JSON.stringify(this.packed, null, 2)
-            this.compressed = faythe.compact(this.packed)
+            this.handleDecrypt()
           },
-          async logthis () {
-      
+          async handleDecrypt () {
+              this.decrypted = faythe.unpackMessage(this.packed, this.bob)
           }
         }
       })

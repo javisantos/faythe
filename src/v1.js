@@ -4,6 +4,8 @@ import { XChaCha20Poly1305 } from '@stablelib/xchacha20poly1305'
 import { hash as blake2b, BLAKE2b } from '@stablelib/blake2b'
 import * as ed25519 from '@stablelib/ed25519'
 import * as x25519 from '@stablelib/x25519'
+import { NewHope } from '@stablelib/newhope'
+import { HKDF } from '@stablelib/hkdf'
 import * as random from '@stablelib/random'
 import * as cbor from '@stablelib/cbor'
 import { Buffer } from 'buffer'
@@ -38,6 +40,7 @@ export const X25519PKASN1 = Buffer.from('302a300506032b656e032100', 'hex')
 export const X25519SKASN1 = Buffer.from('302e020100300506032b656e04220420', 'hex')
 export const PKASN1LENGTH = 12
 export const SKASN1LENGTH = 16
+export const KEYEXCHANGE = 'NEWHOPE'
 
 const INCEPTIONKEY = Symbol('inceptionkey')
 
@@ -90,22 +93,47 @@ export function generateKeyPair () {
 }
 
 export class Identity {
-  constructor (masterkey, namespace, name) {
-    this.namespace = namespace || 'faythe'
-    this.name = name || 'identity'
+  constructor (masterkey, name, namespace) {
+    this.name = name || Buffer.alloc(PUBLICKEYBYTES, 'identity')
+    this.namespace = namespace || Buffer.alloc(PUBLICKEYBYTES, 'faythe')
     this[INCEPTIONKEY] = masterkey ? Buffer.alloc(masterkey.length < RANDOMBYTES
       ? RANDOMBYTES
       : masterkey.length, Buffer.isBuffer(masterkey)
       ? masterkey : Buffer.from(masterkey))
       : randomBytes(RANDOMBYTES)
-    const seed = derive(this[INCEPTIONKEY], this.namespace, this.name, 'register')
+    const seed = derive(this[INCEPTIONKEY], this.name, this.namespace)
     this[INCEPTIONKEY].fill(0)
     const keyPair = ed25519.generateKeyPairFromSeed(seed)
     seed.fill(0)
     this.verPublicKey = Buffer.from(keyPair.publicKey)
-    this.verPrivateKey = Buffer.from(keyPair.secretKey)
+    this.verPrivateKey = Buffer.from(keyPair.secretKey) // 64 bytes
     this.encPublicKey = Buffer.from(ed25519.convertPublicKeyToX25519(this.publicKey))
     this.encPrivateKey = Buffer.from(ed25519.convertSecretKeyToX25519(this.privateKey))
+    this.offers = new Map()
+    this.sharedKeys = new Map()
+  }
+
+  offer (id) {
+    const nh = new NewHope()
+    const offer = nh.offer()
+    this.offers.set(id, nh.saveState())
+    return offer
+  }
+
+  accept (offerMsg, id) {
+    const nh = new NewHope()
+    const accept = nh.accept(offerMsg)
+    this.sharedKeys.set(id, nh.getSharedKey())
+    return accept
+  }
+
+  finish (acceptMsg, id) {
+    const nh = new NewHope()
+    nh.restoreState(this.offers.get(id))
+    nh.finish(acceptMsg)
+    this.sharedKeys.set(id, nh.getSharedKey())
+    this.offers.delete(id)
+    return nh.getSharedKey()
   }
 
   get publicKey () {
@@ -116,10 +144,10 @@ export class Identity {
     return this.verPrivateKey
   }
 
-  link (identity) {
-    const theirPublicKey = ed25519.convertPublicKeyToX25519(identity.publicKey || identity)
+  sharedKey (identity) {
+    const theirPublicKey = identity.encPublicKey || ed25519.convertPublicKeyToX25519(identity.publicKey || identity)
     const sharedKey = hash(x25519.sharedKey(this.encPrivateKey, theirPublicKey, true))
-    return new Identity(sharedKey, this.namespace, identity.name || 'link')
+    return sharedKey
   }
 
   toJson () {
@@ -132,7 +160,6 @@ export class Identity {
       publicKeyBase64: this.publicKey.toString('base64'),
       publicKeyHex: this.publicKey.toString('hex'),
       publicKeyBase58: multibase.encode('base58btc', this.publicKey).toString().substring(1)
-
     }
   }
 }
@@ -147,27 +174,28 @@ export function hash (data) {
   }
 }
 
-export function derive (namespace, key, name, personalization) {
-  const h = new BLAKE2b(RANDOMBYTES, { key, personalization: Buffer.alloc(16, Buffer.isBuffer(personalization) ? personalization : Buffer.from(personalization)) })
-  h.update(Buffer.isBuffer(namespace) ? namespace : Buffer.from(namespace))
-  h.update(Buffer.isBuffer(name) ? name : Buffer.from(name))
-  const digest = h.digest()
-  h.clean()
-  return Buffer.from(digest)
+export function derive (key, name, namespace) {
+  const hkdf = new HKDF(
+    BLAKE2b,
+    key,
+    Buffer.isBuffer(name) ? name : Buffer.from(name),
+    Buffer.isBuffer(namespace) ? namespace : Buffer.from(namespace)
+  )
+  return Buffer.from(hkdf.expand(32))
 }
 
 export function precomputeSharedKey (myPrivateKey, theirPublicKey) {
-  if (process.browser) {
+  if (!process.browser && parseInt(process.versions.node.split('.')[0]) > 13) {
+    return crypto.diffieHellman({
+      privateKey: rawKeyToKeyObject(ed25519.convertSecretKeyToX25519(myPrivateKey), 'private'),
+      publicKey: rawKeyToKeyObject(ed25519.convertPublicKeyToX25519(theirPublicKey), 'public')
+    })
+  } else {
     return Buffer.from(
       x25519.sharedKey(
         ed25519.convertSecretKeyToX25519(myPrivateKey),
         ed25519.convertPublicKeyToX25519(theirPublicKey)
       ))
-  } else {
-    return crypto.diffieHellman({
-      privateKey: rawKeyToKeyObject(ed25519.convertSecretKeyToX25519(myPrivateKey), 'private'),
-      publicKey: rawKeyToKeyObject(ed25519.convertPublicKeyToX25519(theirPublicKey), 'public')
-    })
   }
 }
 
@@ -280,7 +308,6 @@ export function verify (publicKeyObject, data, signature, salt) {
     ? Buffer.concat([salt, dataHash])
     : dataHash
   if (process.browser) {
-    if (signature.length !== ed25519.SIGNATURE_LENGTH) return false
     verified = ed25519.verify(publicKeyObject, toVerify, signature)
   } else {
     verified = crypto.verify(null, toVerify, rawKeyToKeyObject(publicKeyObject, 'public', 'verification'), signature)
@@ -394,6 +421,7 @@ export function unpackMessage (packed, recipientKeysObject) {
           Buffer.concat([decode(packed.tag), decode(packed.ciphertext)]),
           decode(packed.iv),
           Buffer.from(packed.protected))
+
         if (packed.signature) {
           try {
             const verified = this.verify(senderPublicKey, decrypted, decode(packed.signature))
@@ -430,12 +458,11 @@ export function keyObjectToRawKey (keyObject) {
       format: EXPORTKEYFORMAT
     }).subarray(PKASN1LENGTH)
   }
-  if (keyObject.type === 'private') {
-    return keyObject.export({
-      type: EXPORTPRIVATEKEYTYPE,
-      format: EXPORTKEYFORMAT
-    }).subarray(SKASN1LENGTH)
-  }
+
+  return keyObject.export({
+    type: EXPORTPRIVATEKEYTYPE,
+    format: EXPORTKEYFORMAT
+  }).subarray(SKASN1LENGTH)
 }
 
 export function rawKeyToKeyObject (key, type, use) {
@@ -446,11 +473,10 @@ export function rawKeyToKeyObject (key, type, use) {
       format: EXPORTKEYFORMAT
     })
   }
-  if (type === 'private') {
-    return crypto.createPrivateKey({
-      key: Buffer.concat([use === 'verification' ? ED25519SKASN1 : X25519SKASN1, key]),
-      type: EXPORTPRIVATEKEYTYPE,
-      format: EXPORTKEYFORMAT
-    })
-  }
+
+  return crypto.createPrivateKey({
+    key: Buffer.concat([use === 'verification' ? ED25519SKASN1 : X25519SKASN1, key]),
+    type: EXPORTPRIVATEKEYTYPE,
+    format: EXPORTKEYFORMAT
+  })
 }

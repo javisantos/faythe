@@ -1,3 +1,5 @@
+[![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=master)](https://coveralls.io/github/javisantos/faythe?branch=master)
+
 # Faythe
 
 An easy crypto library to send messages using key encapsulation. A courier for Alice, Bob and friends.
