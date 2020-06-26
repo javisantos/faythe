@@ -37901,30 +37901,31 @@ function verify(publicKeyObject, data, signature, salt) {
   return verified;
 }
 
-function packMessage(message, recipientsPublicKeysObject, senderKeysObject) {
+function packMessage(message, recipientPublicKeys, senderKeys) {
   var _this = this;
 
   var nonRepubiable = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : false;
   message = (0, _typeof2["default"])(message) === 'object' && !_buffer.Buffer.isBuffer(message) && message !== null ? (0, _canonicalize["default"])(message) : message;
   var cek = randomBytes(RANDOMBYTES);
   var nonce = randomBytes(NONCEBYTES);
-  var recipients = recipientsPublicKeysObject.map(function (recipientPublicKeyObject) {
+  var recipients = recipientPublicKeys.map(function (recipientPublicKey) {
+    recipientPublicKey = recipientPublicKey.publicKey ? recipientPublicKey.publicKey : recipientPublicKey;
     var cekNonce = randomBytes(NONCEBYTES);
-    var encryptedKey = senderKeysObject ? _this.authEncrypt(recipientPublicKeyObject, senderKeysObject.privateKey, cek, cekNonce) : _this.anonEncrypt(recipientPublicKeyObject, cek);
+    var encryptedKey = senderKeys ? _this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce) : _this.anonEncrypt(recipientPublicKey, cek);
     var sender = null;
 
-    if (senderKeysObject) {
+    if (senderKeys) {
       if (!nonRepubiable) {
-        sender = encode(_this.anonEncrypt(recipientPublicKeyObject, _buffer.Buffer.from(senderKeysObject.publicKey))).toString();
+        sender = encode(_this.anonEncrypt(recipientPublicKey, _buffer.Buffer.from(senderKeys.publicKey))).toString();
       } else {
-        var publicKey = senderKeysObject.publicKey;
-        sender = encode(_this.anonEncrypt(recipientPublicKeyObject, _buffer.Buffer.from(publicKey))).toString();
+        var publicKey = senderKeys.publicKey;
+        sender = encode(_this.anonEncrypt(recipientPublicKey, _buffer.Buffer.from(publicKey))).toString();
       }
 
       return {
         encrypted_key: encode(encryptedKey).toString(),
         header: {
-          kid: encode(recipientPublicKeyObject).toString(),
+          kid: encode(recipientPublicKey).toString(),
           sender: sender,
           iv: encode(cekNonce).toString()
         }
@@ -37932,7 +37933,7 @@ function packMessage(message, recipientsPublicKeysObject, senderKeysObject) {
     } else {
       return {
         header: {
-          kid: encode(recipientPublicKeyObject).toString()
+          kid: encode(recipientPublicKey).toString()
         },
         encrypted_key: encode(encryptedKey).toString()
       };
@@ -37941,7 +37942,7 @@ function packMessage(message, recipientsPublicKeysObject, senderKeysObject) {
   var protectedencoded = encode(_buffer.Buffer.from((0, _canonicalize["default"])({
     enc: CIPHERALGID,
     typ: "FAYTHE/".concat(VERSION),
-    alg: senderKeysObject ? 'auth' : 'anon',
+    alg: senderKeys ? 'auth' : 'anon',
     recipients: recipients
   }))).toString();
   var ciphertext = this.secretEncrypt(cek, message, nonce, _buffer.Buffer.from(protectedencoded));
@@ -37953,7 +37954,7 @@ function packMessage(message, recipientsPublicKeysObject, senderKeysObject) {
   };
 
   if (nonRepubiable) {
-    var signature = this.sign(senderKeysObject, message);
+    var signature = this.sign(senderKeys, message);
     result.signature = encode(signature).toString();
   }
 
@@ -37962,7 +37963,7 @@ function packMessage(message, recipientsPublicKeysObject, senderKeysObject) {
   return result;
 }
 
-function unpackMessage(packed, recipientKeysObject) {
+function unpackMessage(packed, recipientKeys) {
   var _this2 = this;
 
   var protectedParsed;
@@ -37978,13 +37979,13 @@ function unpackMessage(packed, recipientKeysObject) {
   protectedParsed.typ !== "FAYTHE/".concat(VERSION)) return false;
   var decrypted = false;
   protectedParsed.recipients.forEach(function (recipient) {
-    if (recipient.header.kid === encode(recipientKeysObject.publicKey).toString()) {
+    if (recipient.header.kid === encode(recipientKeys.publicKey).toString()) {
       if (protectedParsed.alg === 'auth') {
-        var senderPublicKey = _this2.anonDecrypt(recipientKeysObject, decode(recipient.header.sender));
+        var senderPublicKey = _this2.anonDecrypt(recipientKeys, decode(recipient.header.sender));
 
         var slicedPublicKey = senderPublicKey.subarray(0, PUBLICKEYBYTES);
 
-        var cek = _this2.authDecrypt(slicedPublicKey, recipientKeysObject.privateKey, decode(recipient.encrypted_key), decode(recipient.header.iv));
+        var cek = _this2.authDecrypt(slicedPublicKey, recipientKeys.privateKey, decode(recipient.encrypted_key), decode(recipient.header.iv));
 
         decrypted = _this2.secretDecrypt(cek, _buffer.Buffer.concat([decode(packed.tag), decode(packed.ciphertext)]), decode(packed.iv), _buffer.Buffer.from(packed["protected"]));
 
@@ -38002,7 +38003,7 @@ function unpackMessage(packed, recipientKeysObject) {
       }
 
       if (protectedParsed.alg === 'anon') {
-        var _cek = _this2.anonDecrypt(recipientKeysObject, decode(recipient.encrypted_key));
+        var _cek = _this2.anonDecrypt(recipientKeys, decode(recipient.encrypted_key));
 
         decrypted = _this2.secretDecrypt(_cek, _buffer.Buffer.concat([decode(packed.tag), decode(packed.ciphertext)]), decode(packed.iv), _buffer.Buffer.from(packed["protected"]));
 

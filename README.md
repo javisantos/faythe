@@ -15,12 +15,11 @@ npm install faythe --save
 ```js
 const faythe = require('faythe').v1
 
-const Alice = faythe.generateKeyPair()
-const Bob = faythe.generateKeyPair()
-const packed = faythe.packMessage('Hello world', [Bob.publicKey], Alice)
+const Alice = new faythe.Identity()
+const Bob = new faythe.Identity()
+const packed = faythe.packMessage('Hello world', [Bob], Alice)
 const unpacked = faythe.unpackMessage(packed, Bob).toString()
 console.log(unpacked) // Hello world
-
 ```
 
 ## License

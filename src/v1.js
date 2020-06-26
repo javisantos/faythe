@@ -316,36 +316,37 @@ export function verify (publicKeyObject, data, signature, salt) {
   return verified
 }
 
-export function packMessage (message, recipientsPublicKeysObject, senderKeysObject, nonRepubiable = false) {
+export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubiable = false) {
   message = typeof message === 'object' && !Buffer.isBuffer(message) && message !== null ? canonicalize(message) : message
   const cek = randomBytes(RANDOMBYTES)
   const nonce = randomBytes(NONCEBYTES)
 
-  const recipients = recipientsPublicKeysObject.map((recipientPublicKeyObject) => {
+  const recipients = recipientPublicKeys.map((recipientPublicKey) => {
+    recipientPublicKey = recipientPublicKey.publicKey ? recipientPublicKey.publicKey : recipientPublicKey
     const cekNonce = randomBytes(NONCEBYTES)
-    const encryptedKey = senderKeysObject
-      ? this.authEncrypt(recipientPublicKeyObject, senderKeysObject.privateKey, cek, cekNonce)
-      : this.anonEncrypt(recipientPublicKeyObject, cek)
+    const encryptedKey = senderKeys
+      ? this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce)
+      : this.anonEncrypt(recipientPublicKey, cek)
 
     let sender = null
 
-    if (senderKeysObject) {
+    if (senderKeys) {
       if (!nonRepubiable) {
         sender = encode(this.anonEncrypt(
-          recipientPublicKeyObject,
-          Buffer.from(senderKeysObject.publicKey)
+          recipientPublicKey,
+          Buffer.from(senderKeys.publicKey)
         )).toString()
       } else {
-        const publicKey = senderKeysObject.publicKey
+        const publicKey = senderKeys.publicKey
         sender = encode(this.anonEncrypt(
-          recipientPublicKeyObject,
+          recipientPublicKey,
           Buffer.from(publicKey)
         )).toString()
       }
       return {
         encrypted_key: encode(encryptedKey).toString(),
         header: {
-          kid: encode(recipientPublicKeyObject).toString(),
+          kid: encode(recipientPublicKey).toString(),
           sender,
           iv: encode(cekNonce).toString()
         }
@@ -353,7 +354,7 @@ export function packMessage (message, recipientsPublicKeysObject, senderKeysObje
     } else {
       return {
         header: {
-          kid: encode(recipientPublicKeyObject).toString()
+          kid: encode(recipientPublicKey).toString()
         },
         encrypted_key: encode(encryptedKey).toString()
       }
@@ -363,7 +364,7 @@ export function packMessage (message, recipientsPublicKeysObject, senderKeysObje
   const protectedencoded = encode(Buffer.from(canonicalize({
     enc: CIPHERALGID,
     typ: `FAYTHE/${VERSION}`,
-    alg: senderKeysObject ? 'auth' : 'anon',
+    alg: senderKeys ? 'auth' : 'anon',
     recipients
   }))).toString()
 
@@ -381,7 +382,7 @@ export function packMessage (message, recipientsPublicKeysObject, senderKeysObje
   }
 
   if (nonRepubiable) {
-    const signature = this.sign(senderKeysObject, message)
+    const signature = this.sign(senderKeys, message)
     result.signature = encode(signature).toString()
   }
 
@@ -390,7 +391,7 @@ export function packMessage (message, recipientsPublicKeysObject, senderKeysObje
   return result
 }
 
-export function unpackMessage (packed, recipientKeysObject) {
+export function unpackMessage (packed, recipientKeys) {
   let protectedParsed
 
   try {
@@ -403,17 +404,17 @@ export function unpackMessage (packed, recipientKeysObject) {
   let decrypted = false
 
   protectedParsed.recipients.forEach((recipient) => {
-    if (recipient.header.kid === encode(recipientKeysObject.publicKey).toString()) {
+    if (recipient.header.kid === encode(recipientKeys.publicKey).toString()) {
       if (protectedParsed.alg === 'auth') {
         const senderPublicKey = this.anonDecrypt(
-          recipientKeysObject,
+          recipientKeys,
           decode(recipient.header.sender))
 
         const slicedPublicKey = senderPublicKey.subarray(0, PUBLICKEYBYTES)
 
         const cek = this.authDecrypt(
           slicedPublicKey,
-          recipientKeysObject.privateKey,
+          recipientKeys.privateKey,
           decode(recipient.encrypted_key),
           decode(recipient.header.iv))
         decrypted = this.secretDecrypt(
@@ -435,7 +436,7 @@ export function unpackMessage (packed, recipientKeysObject) {
 
       if (protectedParsed.alg === 'anon') {
         const cek = this.anonDecrypt(
-          recipientKeysObject,
+          recipientKeys,
           decode(recipient.encrypted_key))
 
         decrypted = this.secretDecrypt(
