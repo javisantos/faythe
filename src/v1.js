@@ -76,22 +76,6 @@ const secretEncryptErrorHandler = function (args) {
   if (args[3] && !Buffer.isBuffer(args[3])) throw new TypeError('AAD must be a Buffer')
 }
 
-export function generateKeyPair () {
-  if (process.browser) {
-    const kp = ed25519.generateKeyPair()
-    return {
-      publicKey: Buffer.from(kp.publicKey),
-      privateKey: Buffer.from(kp.secretKey)
-    }
-  } else {
-    const kp = crypto.generateKeyPairSync(VERIFICATIONKEYTYPE)
-    return {
-      publicKey: keyObjectToRawKey(kp.publicKey),
-      privateKey: Buffer.concat([keyObjectToRawKey(kp.privateKey), keyObjectToRawKey(kp.publicKey)])
-    }
-  }
-}
-
 export class Identity {
   constructor (masterkey, name, namespace) {
     this.name = name || Buffer.alloc(PUBLICKEYBYTES, 'identity')
@@ -160,6 +144,22 @@ export class Identity {
       publicKeyBase64: this.publicKey.toString('base64'),
       publicKeyHex: this.publicKey.toString('hex'),
       publicKeyBase58: multibase.encode('base58btc', this.publicKey).toString().substring(1)
+    }
+  }
+}
+
+export function generateKeyPair () {
+  if (process.browser) {
+    const kp = ed25519.generateKeyPair()
+    return {
+      publicKey: Buffer.from(kp.publicKey),
+      privateKey: Buffer.from(kp.secretKey)
+    }
+  } else {
+    const kp = crypto.generateKeyPairSync(VERIFICATIONKEYTYPE)
+    return {
+      publicKey: keyObjectToRawKey(kp.publicKey),
+      privateKey: Buffer.concat([keyObjectToRawKey(kp.privateKey), keyObjectToRawKey(kp.publicKey)])
     }
   }
 }
@@ -300,7 +300,7 @@ export function sign (myKeys, data, salt) {
   return signature
 }
 
-export function verify (publicKeyObject, data, signature, salt) {
+export function verify (publicKey, data, signature, salt) {
   data = typeof data === 'object' && !Buffer.isBuffer(data) ? canonicalize(data) : data
   let verified
   const dataHash = hash(Buffer.from(data))
@@ -308,9 +308,9 @@ export function verify (publicKeyObject, data, signature, salt) {
     ? Buffer.concat([salt, dataHash])
     : dataHash
   if (process.browser) {
-    verified = ed25519.verify(publicKeyObject, toVerify, signature)
+    verified = ed25519.verify(publicKey, toVerify, signature)
   } else {
-    verified = crypto.verify(null, toVerify, rawKeyToKeyObject(publicKeyObject, 'public', 'verification'), signature)
+    verified = crypto.verify(null, toVerify, rawKeyToKeyObject(publicKey, 'public', 'verification'), signature)
   }
 
   return verified
