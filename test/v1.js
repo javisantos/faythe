@@ -15,7 +15,7 @@ let alice, bob, charlie
       process.browser = false
     }
     alice = faythe.generateKeyPair()
-    bob = faythe.generateKeyPair()
+    bob = new faythe.Identity()
     charlie = faythe.generateKeyPair()
     t.end()
   })
@@ -176,7 +176,7 @@ let alice, bob, charlie
 
   test('Packmessage json (' + env + ')', (t) => {
     const message = { greetings: 'Hello World' }
-    const packed = faythe.packMessage(message, [bob.publicKey], alice)
+    const packed = faythe.packMessage(message, [bob], alice)
     const unpacked = faythe.unpackMessage(packed, bob)
     t.equal(unpacked.toString(), JSON.stringify(message), 'Should pack and unpack')
 
