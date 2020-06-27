@@ -42,7 +42,7 @@ Returns an object, with the encrypted message and the keys to decrypt for each r
 
 #### `faythe.unpackMessage(packed, recipientKeys)`
 
-Returns de `message` decrypted or `null` if something went wrong.
+Returns the `message` decrypted or `null` if something went wrong.
 
 #### `faythe.generateKeyPair()`
 
