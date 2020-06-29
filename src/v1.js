@@ -1,16 +1,13 @@
 
-import crypto from 'crypto'
 import { XChaCha20Poly1305 } from '@stablelib/xchacha20poly1305'
-import { hash as blake2b, BLAKE2b } from '@stablelib/blake2b'
-import * as ed25519 from '@stablelib/ed25519'
-import * as x25519 from '@stablelib/x25519'
+import { convertPublicKeyToX25519, convertSecretKeyToX25519 } from '@stablelib/ed25519'
 import { NewHope } from '@stablelib/newhope'
-import { HKDF } from '@stablelib/hkdf'
-import * as random from '@stablelib/random'
 import * as cbor from '@stablelib/cbor'
 import { Buffer } from 'buffer'
 import multibase from 'multibase'
 import canonicalize from 'canonicalize'
+import sodium from 'sodium-universal'
+import sha512 from 'sha512-wasm' // browser wait for wasm to load
 
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1'
@@ -29,18 +26,7 @@ export const ENCRYPTIONKEYTYPE = 'x25519'
 export const VERIFICATIONKEYTYPE = 'ed25519'
 export const CIPHERALG = 'xchacha20-poly1305'
 export const CIPHERALGID = 'XC20P'
-export const HASHALG = 'BLAKE2b512'
-export const EXPORTCIPHER = 'aes-256-cbc'
-export const EXPORTKEYFORMAT = 'der'
-export const EXPORTPUBLICKEYTYPE = 'spki'
-export const EXPORTPRIVATEKEYTYPE = 'pkcs8'
-export const ED25519PKASN1 = Buffer.from('302a300506032b6570032100', 'hex')
-export const ED25519SKASN1 = Buffer.from('302e020100300506032b657004220420', 'hex')
-export const X25519PKASN1 = Buffer.from('302a300506032b656e032100', 'hex')
-export const X25519SKASN1 = Buffer.from('302e020100300506032b656e04220420', 'hex')
-export const PKASN1LENGTH = 12
-export const SKASN1LENGTH = 16
-export const KEYEXCHANGE = 'NEWHOPE'
+export const HASHALG = 'BLAKE2b'
 
 const INCEPTIONKEY = Symbol('inceptionkey')
 
@@ -53,11 +39,13 @@ const deserialize = cbor.decode
 export { canonicalize, encode, decode, serialize, deserialize }
 
 export function randomBytes (bytes) {
-  if (process.browser) {
-    return Buffer.from(random.randomBytes(bytes))
-  } else {
-    return crypto.randomBytes(bytes)
-  }
+  const b = Buffer.alloc(bytes)
+  sodium.randombytes_buf(b)
+  return b
+}
+
+export function ensureBuffer (data) {
+  return Buffer.isBuffer(data) ? data : Buffer.from(data)
 }
 
 const authEncryptErrorHandler = function (args) {
@@ -80,19 +68,18 @@ export class Identity {
   constructor (masterkey, name, namespace) {
     this.name = name || Buffer.alloc(PUBLICKEYBYTES, 'identity')
     this.namespace = namespace || Buffer.alloc(PUBLICKEYBYTES, 'faythe')
-    this[INCEPTIONKEY] = masterkey ? Buffer.alloc(masterkey.length < RANDOMBYTES
-      ? RANDOMBYTES
-      : masterkey.length, Buffer.isBuffer(masterkey)
-      ? masterkey : Buffer.from(masterkey))
+    this[INCEPTIONKEY] = masterkey ? Buffer.alloc(
+      masterkey.length < RANDOMBYTES ? RANDOMBYTES : masterkey.length,
+      Buffer.isBuffer(masterkey) ? masterkey : Buffer.from(masterkey))
       : randomBytes(RANDOMBYTES)
     const seed = derive(this[INCEPTIONKEY], this.name, this.namespace)
     this[INCEPTIONKEY].fill(0)
-    const keyPair = ed25519.generateKeyPairFromSeed(seed)
+    const keyPair = generateKeyPair()
     seed.fill(0)
     this.verPublicKey = Buffer.from(keyPair.publicKey)
-    this.verPrivateKey = Buffer.from(keyPair.secretKey) // 64 bytes
-    this.encPublicKey = Buffer.from(ed25519.convertPublicKeyToX25519(this.publicKey))
-    this.encPrivateKey = Buffer.from(ed25519.convertSecretKeyToX25519(this.privateKey))
+    this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
+    this.encPublicKey = Buffer.from(convertPublicKeyToX25519(this.publicKey))
+    this.encPrivateKey = Buffer.from(convertSecretKeyToX25519(this.privateKey))
     this.offers = new Map()
     this.sharedKeys = new Map()
   }
@@ -128,12 +115,6 @@ export class Identity {
     return this.verPrivateKey
   }
 
-  sharedKey (identity) {
-    const theirPublicKey = identity.encPublicKey || ed25519.convertPublicKeyToX25519(identity.publicKey || identity)
-    const sharedKey = hash(x25519.sharedKey(this.encPrivateKey, theirPublicKey, true))
-    return sharedKey
-  }
-
   toJson () {
     return {
       id: encode(this.publicKey).toString().substring(1, 8),
@@ -148,68 +129,74 @@ export class Identity {
   }
 }
 
+export async function ready (cb) {
+  sha512.ready(() => {
+    cb()
+  })
+}
+
 export function generateKeyPair () {
-  if (process.browser) {
-    const kp = ed25519.generateKeyPair()
-    return {
-      publicKey: Buffer.from(kp.publicKey),
-      privateKey: Buffer.from(kp.secretKey)
-    }
-  } else {
-    const kp = crypto.generateKeyPairSync(VERIFICATIONKEYTYPE)
-    return {
-      publicKey: keyObjectToRawKey(kp.publicKey),
-      privateKey: Buffer.concat([keyObjectToRawKey(kp.privateKey), keyObjectToRawKey(kp.publicKey)])
-    }
+  const pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
+  const sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
+  sodium.crypto_sign_keypair(pk, sk)
+  return {
+    publicKey: pk,
+    privateKey: sk
   }
 }
 
 export function hash (data) {
-  if (process.browser) {
-    return Buffer.from(blake2b(data)).slice(0, HASHBYTES)
-  } else {
-    const hasher = crypto.createHash(HASHALG)
-    hasher.update(data)
-    return hasher.digest().slice(0, HASHBYTES)
-  }
+  const b = Buffer.alloc(HASHBYTES)
+  sodium.crypto_generichash(b, ensureBuffer(data))
+  return b
 }
 
 export function derive (key, name, namespace) {
-  const hkdf = new HKDF(
-    BLAKE2b,
-    key,
-    Buffer.isBuffer(name) ? name : Buffer.from(name),
-    Buffer.isBuffer(namespace) ? namespace : Buffer.from(namespace)
-  )
-  return Buffer.from(hkdf.expand(32))
+  const derived = Buffer.alloc(32)
+
+  sodium.crypto_generichash_batch(derived, [
+    Buffer.from(Buffer.byteLength(namespace, 'ascii') + '\n' + namespace, 'ascii'),
+    Buffer.isBuffer(name) ? name : Buffer.from(name)
+  ], key)
+
+  return derived
 }
 
-export function precomputeSharedKey (myPrivateKey, theirPublicKey) {
-  if (!process.browser && parseInt(process.versions.node.split('.')[0]) > 13) {
-    return crypto.diffieHellman({
-      privateKey: rawKeyToKeyObject(ed25519.convertSecretKeyToX25519(myPrivateKey), 'private'),
-      publicKey: rawKeyToKeyObject(ed25519.convertPublicKeyToX25519(theirPublicKey), 'public')
-    })
+export function precomputeSharedKey (myPrivateKey, theirPublicKey, client) {
+  let X25519pk
+  let X25519sk
+  if (process.browser) {
+    X25519pk = convertPublicKeyToX25519(theirPublicKey)
+    X25519sk = convertSecretKeyToX25519(myPrivateKey)
   } else {
-    return Buffer.from(
-      x25519.sharedKey(
-        ed25519.convertSecretKeyToX25519(myPrivateKey),
-        ed25519.convertPublicKeyToX25519(theirPublicKey)
-      ))
+    X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+    X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
+    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
+    sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myPrivateKey)
   }
+
+  const q = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+
+  sodium.crypto_scalarmult(
+    q,
+    X25519sk,
+    X25519pk
+  )
+  return !client
+    ? hash(Buffer.concat([q, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES), theirPublicKey]))
+    : hash(Buffer.concat([q, theirPublicKey, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES)]))
 }
 
-export function authEncrypt (theirPublicKey, myPrivateKey, data, nonce) {
+export function authEncrypt (theirPublicKey, myPrivateKey, data, nonce, client) {
   authEncryptErrorHandler(arguments)
-  const sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey)
-
+  const sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey, client)
   const result = this.secretEncrypt(sharedKey, data, nonce)
   return result
 }
 
-export function authDecrypt (theirPublicKeyObject, myPrivateKeyObject, data, nonce) {
+export function authDecrypt (theirPublicKey, myPrivateKey, data, nonce) {
   authEncryptErrorHandler(arguments)
-  const sharedKey = precomputeSharedKey(myPrivateKeyObject, theirPublicKeyObject)
+  const sharedKey = precomputeSharedKey(myPrivateKey, theirPublicKey)
   const result = this.secretDecrypt(sharedKey, data, nonce)
   return result
 }
@@ -226,7 +213,7 @@ export function anonEncrypt (theirPublicKey, message) {
 
   const ciphertext = Buffer.concat([
     ephPublicKeyBuffer,
-    this.authEncrypt(theirPublicKey, ephkp.privateKey, message, nonce)
+    this.authEncrypt(theirPublicKey, ephkp.privateKey, message, nonce, true)
   ])
 
   ephPublicKeyBuffer.fill(0)
@@ -288,32 +275,22 @@ export function sign (myKeys, data, salt) {
   const toSign = salt
     ? Buffer.concat([salt, dataHash])
     : dataHash
-  let signature
-  if (process.browser) {
-    signature = Buffer.from(ed25519.sign(
-      myKeys.privateKey,
-      toSign))
-  } else {
-    signature = crypto.sign(null, toSign, rawKeyToKeyObject(myKeys.privateKey, 'private', 'verification'))
-  }
+
+  const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
+  sodium.crypto_sign_detached(signature, toSign, myKeys.privateKey)
 
   return signature
 }
 
 export function verify (publicKey, data, signature, salt) {
   data = typeof data === 'object' && !Buffer.isBuffer(data) ? canonicalize(data) : data
-  let verified
+
   const dataHash = hash(Buffer.from(data))
   const toVerify = salt
     ? Buffer.concat([salt, dataHash])
     : dataHash
-  if (process.browser) {
-    verified = ed25519.verify(publicKey, toVerify, signature)
-  } else {
-    verified = crypto.verify(null, toVerify, rawKeyToKeyObject(publicKey, 'public', 'verification'), signature)
-  }
 
-  return verified
+  return sodium.crypto_sign_verify_detached(signature, ensureBuffer(toVerify), publicKey)
 }
 
 export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubiable = false) {
@@ -325,7 +302,7 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
     recipientPublicKey = recipientPublicKey.publicKey ? recipientPublicKey.publicKey : recipientPublicKey
     const cekNonce = randomBytes(NONCEBYTES)
     const encryptedKey = senderKeys
-      ? this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce)
+      ? this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce, true)
       : this.anonEncrypt(recipientPublicKey, cek)
 
     let sender = null
@@ -402,7 +379,7 @@ export function unpackMessage (packed, recipientKeys) {
 
   if (/** protectedParsed.enc !== CIPHERALGID || */ protectedParsed.typ !== `FAYTHE/${VERSION}`) return false
   let decrypted = false
-
+  let verified = false
   protectedParsed.recipients.forEach((recipient) => {
     if (recipient.header.kid === encode(recipientKeys.publicKey).toString()) {
       if (protectedParsed.alg === 'auth') {
@@ -425,8 +402,7 @@ export function unpackMessage (packed, recipientKeys) {
 
         if (packed.signature) {
           try {
-            const verified = this.verify(senderPublicKey, decrypted, decode(packed.signature))
-            if (!verified) decrypted = false
+            verified = this.verify(senderPublicKey, decrypted, decode(packed.signature))
           } catch (error) {
             decrypted = false
           }
@@ -449,35 +425,5 @@ export function unpackMessage (packed, recipientKeys) {
       }
     }
   })
-  return decrypted
-}
-
-export function keyObjectToRawKey (keyObject) {
-  if (keyObject.type === 'public') {
-    return keyObject.export({
-      type: EXPORTPUBLICKEYTYPE,
-      format: EXPORTKEYFORMAT
-    }).subarray(PKASN1LENGTH)
-  }
-
-  return keyObject.export({
-    type: EXPORTPRIVATEKEYTYPE,
-    format: EXPORTKEYFORMAT
-  }).subarray(SKASN1LENGTH)
-}
-
-export function rawKeyToKeyObject (key, type, use) {
-  if (type === 'public') {
-    return crypto.createPublicKey({
-      key: Buffer.concat([use === 'verification' ? ED25519PKASN1 : X25519PKASN1, key]),
-      type: EXPORTPUBLICKEYTYPE,
-      format: EXPORTKEYFORMAT
-    })
-  }
-
-  return crypto.createPrivateKey({
-    key: Buffer.concat([use === 'verification' ? ED25519SKASN1 : X25519SKASN1, key]),
-    type: EXPORTPRIVATEKEYTYPE,
-    format: EXPORTKEYFORMAT
-  })
+  return packed.signature ? verified ? decrypted : false : decrypted
 }

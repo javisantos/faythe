@@ -2,59 +2,62 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- <link href="https://unpkg.com/tailwindcss@^1.0/dist/tailwind.min.css" rel="stylesheet"> -->
-    <link href="./css/microcss-1.1.0/dist/microcss.min.css" rel="stylesheet">
-    <title>Demo</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- <link href="https://unpkg.com/tailwindcss@^1.0/dist/tailwind.min.css" rel="stylesheet"> -->
+  <link href="./css/microcss-1.1.0/dist/microcss.min.css" rel="stylesheet">
+  <title>Demo</title>
 </head>
 
 <body class="bg-gray-300 font-mono">
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"></script>
-    
-    <div class="row" style="padding: 10px; margin:auto">
-    <div id="app" class="col-12" >
-        <input class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none" type="text" v-model="message"/>
-        <button @click="handleEncrypt" class="primary mb-5">
-          Pack Message
-        </button>
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"></script>
 
-        <textarea rows="13" class="shadow block mt-5 w-full"  v-model="encrypted"> </textarea>
-        Decrypted:
-        <textarea rows="5" class="shadow block mt-5 w-full"  v-model="decrypted"> </textarea>
+  <div class="row" style="padding: 10px; margin:auto">
+    <div id="app" class="col-12">
+      <input class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none"
+        type="text" v-model="message" />
+      <button @click="handleEncrypt" class="primary mb-5">
+        Pack Message
+      </button>
+
+      <textarea rows="13" class="shadow block mt-5 w-full" v-model="encrypted"> </textarea>
+      Decrypted:
+      <textarea rows="5" class="shadow block mt-5 w-full" v-model="decrypted"> </textarea>
     </div>
-   </div>
+  </div>
 
-    <script type="module">
-      
-      import {v1 as faythe } from '../dist/faythe.js'
-        new Vue({
-        el: '#app',
-        data: {
-          message: 'Hello',
-          encrypted: '',
-          decrypted: '',
-          packed: {},
-          alice: {},
-          bob: {},
-        },
-        created () {
-          console.log('faythe', faythe)
+  <script type="module">
+    import { v1 as faythe } from '../dist/faythe.js'
+    // eslint-disable-next-line
+    new Vue({
+      el: '#app',
+      data: {
+        message: 'Hello',
+        encrypted: '',
+        decrypted: '',
+        packed: {},
+        alice: {},
+        bob: {}
+      },
+      created () {
+        console.log('faythe', faythe)
+        faythe.ready(() => {
           this.alice = new faythe.Identity()
           this.bob = new faythe.Identity()
+        })
+      },
+      methods: {
+        handleEncrypt () {
+          this.packed = faythe.packMessage(this.message, [this.bob.publicKey], this.alice, true)
+          this.encrypted = JSON.stringify(this.packed, null, 2)
+          this.handleDecrypt()
         },
-        methods: {
-          handleEncrypt () {
-            this.packed = faythe.packMessage(this.message, [this.bob.publicKey], this.alice, true)
-            this.encrypted = JSON.stringify(this.packed, null, 2)
-            this.handleDecrypt()
-          },
-          async handleDecrypt () {
-              this.decrypted = faythe.unpackMessage(this.packed, this.bob)
-          }
+        async handleDecrypt () {
+          this.decrypted = faythe.unpackMessage(this.packed, this.bob)
         }
-      })
-    </script>
+      }
+    })
+  </script>
 </body>
 
 </html>

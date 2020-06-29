@@ -14,9 +14,9 @@ let alice, bob, charlie
     } else {
       process.browser = false
     }
-    alice = faythe.generateKeyPair()
+    alice = new faythe.Identity(Buffer.alloc(64, 'secret'))
     bob = new faythe.Identity()
-    charlie = faythe.generateKeyPair()
+    charlie = new faythe.Identity('secret')
     t.end()
   })
 
@@ -252,7 +252,7 @@ let alice, bob, charlie
 
   test('Derive (' + env + ')', (t) => {
     const derived = faythe.derive(Buffer.alloc(32, 'test'), 'Alice2', 'test')
-    t.deepEqual(derived.toString('hex'), '61b109ff5f3ba18fe1de971188fd650c37c52344e6cac33b4a47b6da9121c819', 'Should derive a key')
+    t.deepEqual(derived.toString('hex'), '7de8fd0627eb12f948166b0e0e6a4a58a4d4382c4189b0af49f5eb1ff3907420', 'Should derive a key')
     t.end()
   })
 
@@ -272,16 +272,6 @@ let alice, bob, charlie
     Alice.finish(BobAccept, 'Bob')
 
     t.deepEqual(Alice.sharedKeys.get('Bob'), Bob.sharedKeys.get('Alice'), 'Should share the same key')
-    t.end()
-  })
-
-  test('Identity X25591 sharedKey (' + env + ')', (t) => {
-    const Alice = new faythe.Identity()
-    const Bob = new faythe.Identity()
-    const AlicesSharedKey = Alice.sharedKey(Bob)
-    const BobSharedKey = Bob.sharedKey(Alice.publicKey)
-
-    t.deepEqual(AlicesSharedKey, BobSharedKey, 'Should share the same key')
     t.end()
   })
 })

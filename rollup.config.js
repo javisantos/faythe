@@ -3,6 +3,7 @@ import commonjs from '@rollup/plugin-commonjs'
 import nodePolyfills from 'rollup-plugin-node-polyfills'
 import replace from '@rollup/plugin-replace'
 import { terser } from 'rollup-plugin-terser'
+import { wasm } from '@rollup/plugin-wasm'
 import pkg from './package.json'
 
 export default [
@@ -14,6 +15,7 @@ export default [
         format: 'es'
       }],
     plugins: [
+      wasm(),
       commonjs(),
       resolve({
         preferBuiltins: false,
