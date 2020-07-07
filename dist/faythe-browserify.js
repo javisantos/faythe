@@ -41004,7 +41004,7 @@ var Identity = /*#__PURE__*/function () {
     this[INCEPTIONKEY] = masterkey ? _buffer.Buffer.alloc(masterkey.length < RANDOMBYTES ? RANDOMBYTES : masterkey.length, _buffer.Buffer.isBuffer(masterkey) ? masterkey : _buffer.Buffer.from(masterkey)) : randomBytes(RANDOMBYTES);
     var seed = derive(this[INCEPTIONKEY], this.name, this.namespace);
     this[INCEPTIONKEY].fill(0);
-    var keyPair = generateKeyPair();
+    var keyPair = generateKeyPair(seed);
     seed.fill(0);
     this.verPublicKey = _buffer.Buffer.from(keyPair.publicKey);
     this.verPrivateKey = _buffer.Buffer.from(keyPair.privateKey); // 64 bytes
@@ -41081,9 +41081,12 @@ function _ready() {
       while (1) {
         switch (_context.prev = _context.next) {
           case 0:
-            _sha512Wasm["default"].ready(function () {
-              cb();
-            });
+            return _context.abrupt("return", new Promise(function (resolve) {
+              _sha512Wasm["default"].ready(function () {
+                if (cb) cb();
+                resolve();
+              });
+            }));
 
           case 1:
           case "end":
@@ -41096,11 +41099,13 @@ function _ready() {
 }
 
 function generateKeyPair() {
+  var seed = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : randomBytes(RANDOMBYTES);
+
   var pk = _buffer.Buffer.alloc(_sodiumUniversal["default"].crypto_sign_PUBLICKEYBYTES);
 
   var sk = _buffer.Buffer.alloc(_sodiumUniversal["default"].crypto_sign_SECRETKEYBYTES);
 
-  _sodiumUniversal["default"].crypto_sign_keypair(pk, sk);
+  _sodiumUniversal["default"].crypto_sign_seed_keypair(pk, sk, seed);
 
   return {
     publicKey: pk,
@@ -41124,7 +41129,7 @@ function derive(key, name, namespace) {
   return derived;
 }
 
-function precomputeSharedKey(myPrivateKey, theirPublicKey, client) {
+function precomputeSharedKey(myPrivateKey, theirPublicKey, initiator) {
   var X25519pk;
   var X25519sk;
 
@@ -41144,12 +41149,12 @@ function precomputeSharedKey(myPrivateKey, theirPublicKey, client) {
 
   _sodiumUniversal["default"].crypto_scalarmult(q, X25519sk, X25519pk);
 
-  return !client ? hash(_buffer.Buffer.concat([q, myPrivateKey.subarray(_sodiumUniversal["default"].crypto_sign_PUBLICKEYBYTES), theirPublicKey])) : hash(_buffer.Buffer.concat([q, theirPublicKey, myPrivateKey.subarray(_sodiumUniversal["default"].crypto_sign_PUBLICKEYBYTES)]));
+  return !initiator ? hash(_buffer.Buffer.concat([q, myPrivateKey.subarray(_sodiumUniversal["default"].crypto_sign_PUBLICKEYBYTES), theirPublicKey])) : hash(_buffer.Buffer.concat([q, theirPublicKey, myPrivateKey.subarray(_sodiumUniversal["default"].crypto_sign_PUBLICKEYBYTES)]));
 }
 
-function authEncrypt(theirPublicKey, myPrivateKey, data, nonce, client) {
+function authEncrypt(theirPublicKey, myPrivateKey, data, nonce) {
   authEncryptErrorHandler(arguments);
-  var sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey, client);
+  var sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey, true);
   var result = this.secretEncrypt(sharedKey, data, nonce);
   return result;
 }
@@ -41162,62 +41167,78 @@ function authDecrypt(theirPublicKey, myPrivateKey, data, nonce) {
 }
 
 function anonEncrypt(theirPublicKey, message) {
-  var ephkp = this.generateKeyPair();
+  message = ensureBuffer(message);
+  var X25519pk;
 
-  var ephPublicKeyBuffer = _buffer.Buffer.from(ephkp.publicKey);
+  if (process.browser) {
+    X25519pk = (0, _ed.convertPublicKeyToX25519)(theirPublicKey);
+  } else {
+    X25519pk = _buffer.Buffer.alloc(_sodiumUniversal["default"].crypto_scalarmult_BYTES);
 
-  var nonce = hash(_buffer.Buffer.concat([ephPublicKeyBuffer, _buffer.Buffer.from(theirPublicKey)])).subarray(0, NONCEBYTES);
+    _sodiumUniversal["default"].crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey);
+  }
 
-  var ciphertext = _buffer.Buffer.concat([ephPublicKeyBuffer, this.authEncrypt(theirPublicKey, ephkp.privateKey, message, nonce, true)]);
+  var ciphertext = _buffer.Buffer.alloc(message.length + _sodiumUniversal["default"].crypto_box_SEALBYTES);
 
-  ephPublicKeyBuffer.fill(0);
-  nonce.fill(0);
-  return _buffer.Buffer.from(ciphertext);
+  _sodiumUniversal["default"].crypto_box_seal(ciphertext, message, X25519pk);
+
+  return ciphertext;
 }
 
 function anonDecrypt(myKeys, ciphertext) {
-  var ephPublicKey = ciphertext.subarray(0, PUBLICKEYBYTES);
-  var nonce = hash(_buffer.Buffer.concat([ciphertext.slice(0, PUBLICKEYBYTES), myKeys.publicKey])).slice(0, NONCEBYTES);
-  var decrypted = this.authDecrypt(ephPublicKey, myKeys.privateKey, ciphertext.slice(PUBLICKEYBYTES, ciphertext.length), nonce);
-  nonce.fill(0);
-  return decrypted;
+  var X25519pk;
+  var X25519sk;
+
+  if (process.browser) {
+    X25519pk = (0, _ed.convertPublicKeyToX25519)(myKeys.publicKey);
+    X25519sk = (0, _ed.convertSecretKeyToX25519)(myKeys.privateKey);
+  } else {
+    X25519pk = _buffer.Buffer.alloc(_sodiumUniversal["default"].crypto_scalarmult_BYTES);
+    X25519sk = _buffer.Buffer.alloc(_sodiumUniversal["default"].crypto_scalarmult_SCALARBYTES);
+
+    _sodiumUniversal["default"].crypto_sign_ed25519_pk_to_curve25519(X25519pk, myKeys.publicKey);
+
+    _sodiumUniversal["default"].crypto_sign_ed25519_sk_to_curve25519(X25519sk, myKeys.privateKey);
+  }
+
+  var decrypted = _buffer.Buffer.alloc(ciphertext.length - _sodiumUniversal["default"].crypto_box_SEALBYTES);
+
+  return _sodiumUniversal["default"].crypto_box_seal_open(decrypted, ciphertext, X25519pk, X25519sk) && decrypted;
 }
 
-function secretEncrypt(sharedSecret, data, nonce) {
-  var AAD = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : _buffer.Buffer.alloc(0);
+function secretEncrypt(secretKey, message, nonce) {
   secretEncryptErrorHandler(arguments);
-
-  var aad = _buffer.Buffer.concat([_buffer.Buffer.from(VERSION), AAD]);
-
-  var cipher = new _xchacha20poly.XChaCha20Poly1305(sharedSecret);
+  var n;
+  message = ensureBuffer(message);
 
   if (!nonce) {
-    nonce = randomBytes(NONCEBYTES);
-    var ciphertext = cipher.seal(nonce, _buffer.Buffer.from(data), aad);
-    return _buffer.Buffer.concat([nonce, _buffer.Buffer.from(ciphertext)]);
-  } else {
-    var _ciphertext = cipher.seal(nonce, _buffer.Buffer.from(data), aad);
+    n = _buffer.Buffer.alloc(_sodiumUniversal["default"].crypto_secretbox_NONCEBYTES);
 
-    return _buffer.Buffer.from(_ciphertext);
+    _sodiumUniversal["default"].randombytes_buf(n);
+  } else {
+    n = nonce;
   }
+
+  var ciphertext = _buffer.Buffer.alloc(message.length + _sodiumUniversal["default"].crypto_secretbox_MACBYTES);
+
+  _sodiumUniversal["default"].crypto_secretbox_easy(ciphertext, message, n, secretKey);
+
+  return !nonce ? _buffer.Buffer.concat([n, ciphertext]) : ciphertext;
 }
 
-function secretDecrypt(sharedSecret, data, nonce) {
-  var AAD = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : _buffer.Buffer.alloc(0);
+function secretDecrypt(secretKey, ciphertext, nonce) {
   secretEncryptErrorHandler(arguments);
 
-  var aad = _buffer.Buffer.concat([_buffer.Buffer.from(VERSION), AAD]);
-
-  var decipher = new _xchacha20poly.XChaCha20Poly1305(sharedSecret);
-
   if (!nonce) {
-    var decrypted = decipher.open(data.slice(0, NONCEBYTES), data.slice(NONCEBYTES, data.length), aad);
-    return _buffer.Buffer.from(decrypted);
-  } else {
-    var _decrypted = decipher.open(nonce, data, aad);
-
-    return _buffer.Buffer.from(_decrypted);
+    nonce = ciphertext.subarray(0, _sodiumUniversal["default"].crypto_secretbox_NONCEBYTES);
+    ciphertext = ciphertext.subarray(_sodiumUniversal["default"].crypto_secretbox_NONCEBYTES);
   }
+
+  var output = _buffer.Buffer.alloc(ciphertext.length - _sodiumUniversal["default"].crypto_secretbox_MACBYTES);
+
+  _sodiumUniversal["default"].crypto_secretbox_open_easy(output, ciphertext, nonce, secretKey);
+
+  return output;
 }
 
 function sign(myKeys, data, salt) {
@@ -41249,7 +41270,7 @@ function packMessage(message, recipientPublicKeys, senderKeys) {
   var recipients = recipientPublicKeys.map(function (recipientPublicKey) {
     recipientPublicKey = recipientPublicKey.publicKey ? recipientPublicKey.publicKey : recipientPublicKey;
     var cekNonce = randomBytes(NONCEBYTES);
-    var encryptedKey = senderKeys ? _this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce, true) : _this.anonEncrypt(recipientPublicKey, cek);
+    var encryptedKey = senderKeys ? _this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce) : _this.anonEncrypt(recipientPublicKey, cek);
     var sender = null;
 
     if (senderKeys) {

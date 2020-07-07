@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/javisantos/faythe.svg?branch=sodium-universal)](https://travis-ci.org/javisantos/faythe) [![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=master)](https://coveralls.io/github/javisantos/faythe?branch=sodium-universal)
+[![Build Status](https://travis-ci.org/javisantos/faythe.svg?branch=sodium-universal)](https://travis-ci.org/javisantos/faythe) [![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=sodium-universal)](https://coveralls.io/github/javisantos/faythe?branch=sodium-universal)
 
 # Faythe
 
@@ -56,13 +56,7 @@ Returns a 32 bytes `Blake2b` hashed buffer
 
 #### `faythe.derive (key, name, namespace)`
 
-HMAC-based Extract-and-Expand Key Derivation Function. Implements HKDF from RFC5869.
-
-`key` is a high-entropy secret key (not a password)
-
-`name` is a non-secret random value. (salt)
-
-`namespace` is application- and/or context-specific information
+Uses blake2b to derive a 32 bytes key
 
 #### `faythe.precomputeSharedKey (myPrivateKey, theirPublicKey)`
 
@@ -74,7 +68,7 @@ Authenticated (asymmetric) encryption between a public and private keys. The `no
 
 #### `faythe.authDecrypt (theirPublicKeyObject, myPrivateKeyObject, data, [nonce])`
 
-Authenticated (asymmetric) decryption between a public and private keys. If `nonce` is not present, is extracted from the ciphertext.
+Authenticated (asymmetric) decryption between a public and private keys. If `nonce` is not present, is extracted from the ciphertext. Uses `XChaCha20Poly1305`.
 
 #### `faythe.secretEncrypt (sharedSecret, data, [nonce], [AAD])`
 
@@ -82,11 +76,11 @@ Anonymous (symmetric) encryption usin a common `sharedSecret`. `AAD` for addiona
 
 #### `faythe.secretDecrypt (sharedSecret, data, [nonce], [AAD])`
 
-Anonymous (symmetric) decryption usin a common `sharedSecret`.
+Anonymous (symmetric) decryption usin a common `sharedSecret`. Uses `XChaCha20Poly1305`.
 
 #### `faythe.sign (myKeys, data, [salt])`
 
-Returns the signature of data with from the given keys. The `salt` is optional, concats with data.
+Returns the signature of data from the given keys. The `salt` is optional, concats with data.
 
 #### `faythe.verify (publicKey, data, signature, [salt])`
 
@@ -101,16 +95,14 @@ Faythe export this class to easy manage identity related features. WIP
 
 ## Dependencies
 
-- [@stablelib/blake2b](https://ghub.io/@stablelib/blake2b): BLAKE2b cryptographic hash function
 - [@stablelib/cbor](https://ghub.io/@stablelib/cbor): CBOR encoder and decoder
 - [@stablelib/ed25519](https://ghub.io/@stablelib/ed25519): Ed25519 public-key signature (EdDSA with Curve25519)
-- [@stablelib/hkdf](https://ghub.io/@stablelib/hkdf): HMAC-based Extract-and-Expand Key Derivation Function (HKDF, RFC 5869)
 - [@stablelib/newhope](https://ghub.io/@stablelib/newhope): NewHope post-quantum secure key agreement
-- [@stablelib/x25519](https://ghub.io/@stablelib/x25519): X25519 key agreement (Curve25519)
 - [@stablelib/xchacha20poly1305](https://ghub.io/@stablelib/xchacha20poly1305): XChaCha20-Poly1305 AEAD (draft-irtf-cfrg-xchacha-01)
 - [canonicalize](https://ghub.io/canonicalize): JSON canonicalize function 
 - [esm](https://ghub.io/esm): Tomorrow&#39;s ECMAScript modules today!
 - [multibase](https://ghub.io/multibase): JavaScript implementation of the multibase specification
+- [sodium-universal](https://ghub.io/sodium-universal): Universal wrapper for sodium-javascript and sodium-native working in Node.js and the Browser
 
 ## Dev Dependencies
 
@@ -120,6 +112,7 @@ Faythe export this class to easy manage identity related features. WIP
 - [@rollup/plugin-commonjs](https://ghub.io/@rollup/plugin-commonjs): Convert CommonJS modules to ES2015
 - [@rollup/plugin-node-resolve](https://ghub.io/@rollup/plugin-node-resolve): Locate and bundle third-party dependencies in node_modules
 - [@rollup/plugin-replace](https://ghub.io/@rollup/plugin-replace): Replace strings in files while bundling
+- [@rollup/plugin-wasm](https://ghub.io/@rollup/plugin-wasm): Import WebAssembly code with Rollup
 - [babelify](https://ghub.io/babelify): Babel browserify transform
 - [browserify](https://ghub.io/browserify): browser-side require() the node way
 - [coveralls](https://ghub.io/coveralls): takes json-cov output into stdin and POSTs to coveralls.io

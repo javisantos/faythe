@@ -74,7 +74,7 @@ export class Identity {
       : randomBytes(RANDOMBYTES)
     const seed = derive(this[INCEPTIONKEY], this.name, this.namespace)
     this[INCEPTIONKEY].fill(0)
-    const keyPair = generateKeyPair()
+    const keyPair = generateKeyPair(seed)
     seed.fill(0)
     this.verPublicKey = Buffer.from(keyPair.publicKey)
     this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
@@ -130,15 +130,18 @@ export class Identity {
 }
 
 export async function ready (cb) {
-  sha512.ready(() => {
-    cb()
+  return new Promise(resolve => {
+    sha512.ready(() => {
+      if (cb) cb()
+      resolve()
+    })
   })
 }
 
-export function generateKeyPair () {
+export function generateKeyPair (seed = randomBytes(RANDOMBYTES)) {
   const pk = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
   const sk = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
-  sodium.crypto_sign_keypair(pk, sk)
+  sodium.crypto_sign_seed_keypair(pk, sk, seed)
   return {
     publicKey: pk,
     privateKey: sk
@@ -153,7 +156,6 @@ export function hash (data) {
 
 export function derive (key, name, namespace) {
   const derived = Buffer.alloc(32)
-
   sodium.crypto_generichash_batch(derived, [
     Buffer.from(Buffer.byteLength(namespace, 'ascii') + '\n' + namespace, 'ascii'),
     Buffer.isBuffer(name) ? name : Buffer.from(name)
@@ -162,7 +164,7 @@ export function derive (key, name, namespace) {
   return derived
 }
 
-export function precomputeSharedKey (myPrivateKey, theirPublicKey, client) {
+export function precomputeSharedKey (myPrivateKey, theirPublicKey, initiator) {
   let X25519pk
   let X25519sk
   if (process.browser) {
@@ -182,14 +184,14 @@ export function precomputeSharedKey (myPrivateKey, theirPublicKey, client) {
     X25519sk,
     X25519pk
   )
-  return !client
+  return !initiator
     ? hash(Buffer.concat([q, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES), theirPublicKey]))
     : hash(Buffer.concat([q, theirPublicKey, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES)]))
 }
 
-export function authEncrypt (theirPublicKey, myPrivateKey, data, nonce, client) {
+export function authEncrypt (theirPublicKey, myPrivateKey, data, nonce) {
   authEncryptErrorHandler(arguments)
-  const sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey, client)
+  const sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey, true)
   const result = this.secretEncrypt(sharedKey, data, nonce)
   return result
 }
@@ -202,71 +204,59 @@ export function authDecrypt (theirPublicKey, myPrivateKey, data, nonce) {
 }
 
 export function anonEncrypt (theirPublicKey, message) {
-  const ephkp = this.generateKeyPair()
-
-  const ephPublicKeyBuffer = Buffer.from(ephkp.publicKey)
-
-  const nonce = hash(Buffer.concat([
-    ephPublicKeyBuffer,
-    Buffer.from(theirPublicKey)
-  ])).subarray(0, NONCEBYTES)
-
-  const ciphertext = Buffer.concat([
-    ephPublicKeyBuffer,
-    this.authEncrypt(theirPublicKey, ephkp.privateKey, message, nonce, true)
-  ])
-
-  ephPublicKeyBuffer.fill(0)
-  nonce.fill(0)
-  return Buffer.from(ciphertext)
+  message = ensureBuffer(message)
+  let X25519pk
+  if (process.browser) {
+    X25519pk = convertPublicKeyToX25519(theirPublicKey)
+  } else {
+    X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
+  }
+  const ciphertext = Buffer.alloc(message.length + sodium.crypto_box_SEALBYTES)
+  sodium.crypto_box_seal(ciphertext, message, X25519pk)
+  return ciphertext
 }
 
 export function anonDecrypt (myKeys, ciphertext) {
-  const ephPublicKey = ciphertext.subarray(0, PUBLICKEYBYTES)
-
-  const nonce = hash(Buffer.concat([
-    ciphertext.slice(0, PUBLICKEYBYTES),
-    myKeys.publicKey
-  ])).slice(0, NONCEBYTES)
-
-  const decrypted = this.authDecrypt(
-    ephPublicKey,
-    myKeys.privateKey,
-    ciphertext.slice(PUBLICKEYBYTES, ciphertext.length),
-    nonce)
-
-  nonce.fill(0)
-  return decrypted
+  let X25519pk
+  let X25519sk
+  if (process.browser) {
+    X25519pk = convertPublicKeyToX25519(myKeys.publicKey)
+    X25519sk = convertSecretKeyToX25519(myKeys.privateKey)
+  } else {
+    X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+    X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
+    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, myKeys.publicKey)
+    sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myKeys.privateKey)
+  }
+  const decrypted = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
+  return sodium.crypto_box_seal_open(decrypted, ciphertext, X25519pk, X25519sk) && decrypted
 }
 
-export function secretEncrypt (sharedSecret, data, nonce, AAD = Buffer.alloc(0)) {
+export function secretEncrypt (secretKey, message, nonce) {
   secretEncryptErrorHandler(arguments)
-
-  const aad = Buffer.concat([Buffer.from(VERSION), AAD])
-
-  const cipher = new XChaCha20Poly1305(sharedSecret)
+  let n
+  message = ensureBuffer(message)
   if (!nonce) {
-    nonce = randomBytes(NONCEBYTES)
-    const ciphertext = cipher.seal(nonce, Buffer.from(data), aad)
-    return Buffer.concat([nonce, Buffer.from(ciphertext)])
+    n = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES)
+    sodium.randombytes_buf(n)
   } else {
-    const ciphertext = cipher.seal(nonce, Buffer.from(data), aad)
-    return Buffer.from(ciphertext)
+    n = nonce
   }
+  const ciphertext = Buffer.alloc(message.length + sodium.crypto_secretbox_MACBYTES)
+  sodium.crypto_secretbox_easy(ciphertext, message, n, secretKey)
+  return !nonce ? Buffer.concat([n, ciphertext]) : ciphertext
 }
 
-export function secretDecrypt (sharedSecret, data, nonce, AAD = Buffer.alloc(0)) {
+export function secretDecrypt (secretKey, ciphertext, nonce) {
   secretEncryptErrorHandler(arguments)
-  const aad = Buffer.concat([Buffer.from(VERSION), AAD])
-
-  const decipher = new XChaCha20Poly1305(sharedSecret)
   if (!nonce) {
-    const decrypted = decipher.open(data.slice(0, NONCEBYTES), data.slice(NONCEBYTES, data.length), aad)
-    return Buffer.from(decrypted)
-  } else {
-    const decrypted = decipher.open(nonce, data, aad)
-    return Buffer.from(decrypted)
+    nonce = ciphertext.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+    ciphertext = ciphertext.subarray(sodium.crypto_secretbox_NONCEBYTES)
   }
+  const output = Buffer.alloc(ciphertext.length - sodium.crypto_secretbox_MACBYTES)
+  sodium.crypto_secretbox_open_easy(output, ciphertext, nonce, secretKey)
+  return output
 }
 
 export function sign (myKeys, data, salt) {
@@ -302,7 +292,7 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
     recipientPublicKey = recipientPublicKey.publicKey ? recipientPublicKey.publicKey : recipientPublicKey
     const cekNonce = randomBytes(NONCEBYTES)
     const encryptedKey = senderKeys
-      ? this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce, true)
+      ? this.authEncrypt(recipientPublicKey, senderKeys.privateKey, cek, cekNonce)
       : this.anonEncrypt(recipientPublicKey, cek)
 
     let sender = null
@@ -350,7 +340,6 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
     message,
     nonce,
     Buffer.from(protectedencoded))
-
   const result = {
     protected: protectedencoded,
     ciphertext: encode(ciphertext.slice(AUTHTAGLENGTH, ciphertext.length)).toString(),

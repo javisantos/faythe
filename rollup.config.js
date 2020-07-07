@@ -3,29 +3,22 @@ import commonjs from '@rollup/plugin-commonjs'
 import nodePolyfills from 'rollup-plugin-node-polyfills'
 import replace from '@rollup/plugin-replace'
 import { terser } from 'rollup-plugin-terser'
-import { wasm } from '@rollup/plugin-wasm'
-import pkg from './package.json'
 
 export default [
   {
     input: 'main.js',
     output: [
       {
-        file: pkg.browser,
-        format: 'es'
+        file: 'dist/faythe.js',
+        format: 'esm'
       }],
     plugins: [
-      wasm(),
       commonjs(),
       resolve({
-        preferBuiltins: false,
-        browser: true,
-        jsnext: true,
-        main: true
+        preferBuiltins: true,
+        browser: true
       }),
-      nodePolyfills({
-        buffer: false
-      }),
+      nodePolyfills(),
 
       replace({ 'process.browser': !!process.env.BROWSER }),
       terser()

@@ -20,6 +20,14 @@ let alice, bob, charlie
     t.end()
   })
 
+  test('Ready (' + env + ')', async (t) => {
+    await faythe.ready()
+    faythe.ready(() => {
+      t.assert(true, 'Should be ready')
+      t.end()
+    })
+  })
+
   test('random (' + env + ')', (t) => {
     const rnd = faythe.randomBytes(32)
     t.equal(rnd.length, 32, 'Should be 32 bytes long')
@@ -95,7 +103,7 @@ let alice, bob, charlie
     const data = 'Hello world'
     const nonce = faythe.randomBytes(faythe.NONCEBYTES)
     const encrypted = faythe.authEncrypt(bob.publicKey, alice.privateKey, data, nonce)
-    const decrypted = faythe.authDecrypt(bob.publicKey, alice.privateKey, encrypted, nonce)
+    const decrypted = faythe.authDecrypt(alice.publicKey, bob.privateKey, encrypted, nonce)
     t.equal(decrypted.toString(), 'Hello world', 'Should encrypt and decrypt')
 
     try {
