@@ -1,5 +1,4 @@
 
-import { XChaCha20Poly1305 } from '@stablelib/xchacha20poly1305'
 import { convertPublicKeyToX25519, convertSecretKeyToX25519 } from '@stablelib/ed25519'
 import { NewHope } from '@stablelib/newhope'
 import * as cbor from '@stablelib/cbor'
