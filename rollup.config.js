@@ -2,6 +2,7 @@ import resolve from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs'
 import nodePolyfills from 'rollup-plugin-node-polyfills'
 import replace from '@rollup/plugin-replace'
+import json from '@rollup/plugin-json'
 import { terser } from 'rollup-plugin-terser'
 
 export default [
@@ -13,6 +14,7 @@ export default [
         format: 'esm'
       }],
     plugins: [
+      json(),
       commonjs(),
       resolve({
         preferBuiltins: true,

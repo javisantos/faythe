@@ -1,33 +1,34 @@
 
-import { convertPublicKeyToX25519, convertSecretKeyToX25519 } from '@stablelib/ed25519'
-import { NewHope } from '@stablelib/newhope'
+import _libsodium from 'libsodium-wrappers' // pwhash, convert to curve25519
+import sodium from 'sodium-universal'
 import * as cbor from '@stablelib/cbor'
 import { Buffer } from 'buffer'
 import multibase from 'multibase'
 import canonicalize from 'canonicalize'
-import sodium from 'sodium-universal'
 import sha512 from 'sha512-wasm' // browser wait for wasm to load
 
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1'
 export const RANDOMBYTES = 32
-export const NONCEBYTES = 24
+export const NONCEBYTES = 12
 export const HASHBYTES = 32
 export const PUBLICKEYBYTES = 32
 export const PRIVATEKEYBYTES = 64 // Concatenated publicKey
-export const ENCRYPTEDPRIVATEKEYBYTES = 158
 export const SHAREDKEYBYTES = 32
 export const SALTBYTES = 12
+export const MIN_SEEDBYTES = 16
 export const AUTHTAGLENGTH = 16
 export const ENCODER = 'base64url'
 export const SERIALIZER = 'cbor'
 export const ENCRYPTIONKEYTYPE = 'x25519'
-export const VERIFICATIONKEYTYPE = 'ed25519'
-export const CIPHERALG = 'xchacha20-poly1305'
-export const CIPHERALGID = 'XC20P'
-export const HASHALG = 'BLAKE2b'
+export const VERIFICATIONKEYTYPE = 'Ed25519VerificationKey2018'
 
-const INCEPTIONKEY = Symbol('inceptionkey')
+export const CIPHERALG = 'Chacha20-Poly1305'
+export const CIPHERALGID = 'C20P'
+export const HASHALG = 'blake2b-256'
+
+let libsodium
+const MASTERKEY = Symbol('MASTERKEY')
 
 const encode = (buffer) => multibase.encode(ENCODER, buffer)
 const decode = (bufOrString) => multibase.decode(bufOrString)
@@ -64,46 +65,33 @@ const secretEncryptErrorHandler = function (args) {
 }
 
 export class Identity {
-  constructor (masterkey, name, namespace) {
-    this.name = name || Buffer.alloc(PUBLICKEYBYTES, 'identity')
-    this.namespace = namespace || Buffer.alloc(PUBLICKEYBYTES, 'faythe')
-    this[INCEPTIONKEY] = masterkey ? Buffer.alloc(
-      masterkey.length < RANDOMBYTES ? RANDOMBYTES : masterkey.length,
-      Buffer.isBuffer(masterkey) ? masterkey : Buffer.from(masterkey))
-      : randomBytes(RANDOMBYTES)
-    const seed = derive(this[INCEPTIONKEY], this.name, this.namespace)
-    this[INCEPTIONKEY].fill(0)
-    const keyPair = generateKeyPair(seed)
-    seed.fill(0)
+  constructor (passphrase, idspace, name, rotation = 0, sensitive = false) {
+    if (!passphrase) passphrase = randomBytes(MIN_SEEDBYTES)
+    else passphrase = ensureBuffer(passphrase)
+    this.seed = passphrase
+    this.idspace = idspace ? ensureBuffer(idspace) : Buffer.alloc(RANDOMBYTES, 'local')
+    this.name = name || 'identity'
+    this.rotation = rotation
+    const salt = hashBatch([this.idspace, ensureBuffer(this.name)], libsodium.crypto_pwhash_SALTBYTES) // 16 bytes
+
+    const stretchedKey = pwhash(passphrase, salt, sensitive) // if sensitive is true, this can take few seconds...
+    this._locked = false
+    this[MASTERKEY] = deriveFromKey(stretchedKey, rotation, 'rotation') // 32 bytes
+
+    const keyPair = this.keyPairFor(this.idspace)
+    this.preRotatedKey = hash(this.keyPairFor(this.idspace, deriveFromKey(stretchedKey, rotation + 1, 'rotation')).publicKey)
+    // this.did = "A+base64url(publicKey)"
+    // console.log(encode(keyPair.publicKey), encode(keyPair.publicKey).length, encode(keyPair.publicKey).toString())
+    // this.inceptionData = [derivation,publicKey, config]
+    // this.inception = [this.inceptionData, signature]
+    this.namespace = hashBatch([this.idspace, keyPair.publicKey])
     this.verPublicKey = Buffer.from(keyPair.publicKey)
     this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
-    this.encPublicKey = Buffer.from(convertPublicKeyToX25519(this.publicKey))
-    this.encPrivateKey = Buffer.from(convertSecretKeyToX25519(this.privateKey))
-    this.offers = new Map()
-    this.sharedKeys = new Map()
   }
 
-  offer (id) {
-    const nh = new NewHope()
-    const offer = nh.offer()
-    this.offers.set(id, nh.saveState())
-    return offer
-  }
-
-  accept (offerMsg, id) {
-    const nh = new NewHope()
-    const accept = nh.accept(offerMsg)
-    this.sharedKeys.set(id, nh.getSharedKey())
-    return accept
-  }
-
-  finish (acceptMsg, id) {
-    const nh = new NewHope()
-    nh.restoreState(this.offers.get(id))
-    nh.finish(acceptMsg)
-    this.sharedKeys.set(id, nh.getSharedKey())
-    this.offers.delete(id)
-    return nh.getSharedKey()
+  keyPairFor (idspace, masterKey) {
+    if (!this.locked) return generateKeyPair(derive(masterKey || this[MASTERKEY], idspace, this.name))
+    else return null
   }
 
   get publicKey () {
@@ -114,10 +102,22 @@ export class Identity {
     return this.verPrivateKey
   }
 
+  get locked () {
+    return this._locked
+  }
+
+  lock () {
+    sodium.sodium_memzero(this[MASTERKEY])
+    sodium.sodium_memzero(this.seed)
+    sodium.sodium_memzero(this.verPublicKey)
+    sodium.sodium_memzero(this.verPrivateKey)
+    this._locked = true
+  }
+
   toJson () {
     return {
       id: encode(this.publicKey).toString().substring(1, 8),
-      type: 'Ed25519VerificationKey2018',
+      type: VERIFICATIONKEYTYPE,
       controller: '#id',
       publicKeyMultiBase: encode(this.publicKey).toString(),
       publicKeyBase64url: encode(this.publicKey).toString().substring(1),
@@ -126,9 +126,15 @@ export class Identity {
       publicKeyBase58: multibase.encode('base58btc', this.publicKey).toString().substring(1)
     }
   }
+
+  static ready (cb) {
+    return ready(cb)
+  }
 }
 
 export async function ready (cb) {
+  await _libsodium.ready
+  libsodium = _libsodium
   return new Promise(resolve => {
     sha512.ready(() => {
       if (cb) cb()
@@ -147,19 +153,42 @@ export function generateKeyPair (seed = randomBytes(RANDOMBYTES)) {
   }
 }
 
-export function hash (data) {
-  const b = Buffer.alloc(HASHBYTES)
-  sodium.crypto_generichash(b, ensureBuffer(data))
+export function hash (data, bytes, key) {
+  const b = Buffer.alloc(bytes || HASHBYTES)
+  if (key) sodium.crypto_generichash(b, ensureBuffer(data), key)
+  else sodium.crypto_generichash(b, ensureBuffer(data))
   return b
 }
 
-export function derive (key, name, namespace) {
-  const derived = Buffer.alloc(32)
+export function hashBatch (data, bytes, key) {
+  const b = Buffer.alloc(bytes || HASHBYTES)
+  data = data.map(d => ensureBuffer(d))
+  if (key) sodium.crypto_generichash_batch(b, ensureBuffer(data), key)
+  else sodium.crypto_generichash_batch(b, data)
+  return b
+}
+
+export function pwhash (password, salt, sensitive) {
+  return libsodium.crypto_pwhash(RANDOMBYTES, ensureBuffer(password), salt,
+    sensitive ? libsodium.crypto_pwhash_OPSLIMIT_SENSITIVE : libsodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+    sensitive ? libsodium.crypto_pwhash_MEMLIMIT_SENSITIVE : libsodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+    libsodium.crypto_pwhash_ALG_DEFAULT)
+}
+
+export function derive (key, namespace, name) {
+  const derived = Buffer.alloc(RANDOMBYTES)
   sodium.crypto_generichash_batch(derived, [
     Buffer.from(Buffer.byteLength(namespace, 'ascii') + '\n' + namespace, 'ascii'),
-    Buffer.isBuffer(name) ? name : Buffer.from(name)
+    ensureBuffer(name)
   ], key)
 
+  return derived
+}
+
+export function deriveFromKey (key, int, ctx) {
+  const context = Buffer.alloc(sodium.crypto_kdf_CONTEXTBYTES, ensureBuffer(ctx))
+  const derived = Buffer.alloc(RANDOMBYTES)
+  sodium.crypto_kdf_derive_from_key(derived, int, context, key)
   return derived
 }
 
@@ -167,8 +196,8 @@ export function precomputeSharedKey (myPrivateKey, theirPublicKey, initiator) {
   let X25519pk
   let X25519sk
   if (process.browser) {
-    X25519pk = convertPublicKeyToX25519(theirPublicKey)
-    X25519sk = convertSecretKeyToX25519(myPrivateKey)
+    X25519pk = libsodium.crypto_sign_ed25519_pk_to_curve25519(theirPublicKey)
+    X25519sk = libsodium.crypto_sign_ed25519_sk_to_curve25519(myPrivateKey)
   } else {
     X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
     X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
@@ -176,29 +205,30 @@ export function precomputeSharedKey (myPrivateKey, theirPublicKey, initiator) {
     sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myPrivateKey)
   }
 
-  const q = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+  const sharedSecret = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
 
   sodium.crypto_scalarmult(
-    q,
+    sharedSecret,
     X25519sk,
     X25519pk
   )
+
   return !initiator
-    ? hash(Buffer.concat([q, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES), theirPublicKey]))
-    : hash(Buffer.concat([q, theirPublicKey, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES)]))
+    ? hash(Buffer.concat([sharedSecret, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES), theirPublicKey]))
+    : hash(Buffer.concat([sharedSecret, theirPublicKey, myPrivateKey.subarray(sodium.crypto_sign_PUBLICKEYBYTES)]))
 }
 
 export function authEncrypt (theirPublicKey, myPrivateKey, data, nonce) {
   authEncryptErrorHandler(arguments)
-  const sharedKey = this.precomputeSharedKey(myPrivateKey, theirPublicKey, true)
-  const result = this.secretEncrypt(sharedKey, data, nonce)
+  const sharedSecret = this.precomputeSharedKey(myPrivateKey, theirPublicKey, true)
+  const result = this.secretEncrypt(sharedSecret, data, nonce)
   return result
 }
 
 export function authDecrypt (theirPublicKey, myPrivateKey, data, nonce) {
   authEncryptErrorHandler(arguments)
-  const sharedKey = precomputeSharedKey(myPrivateKey, theirPublicKey)
-  const result = this.secretDecrypt(sharedKey, data, nonce)
+  const sharedSecret = precomputeSharedKey(myPrivateKey, theirPublicKey)
+  const result = secretDecrypt(sharedSecret, data, nonce)
   return result
 }
 
@@ -206,7 +236,7 @@ export function anonEncrypt (theirPublicKey, message) {
   message = ensureBuffer(message)
   let X25519pk
   if (process.browser) {
-    X25519pk = convertPublicKeyToX25519(theirPublicKey)
+    X25519pk = libsodium.crypto_sign_ed25519_pk_to_curve25519(theirPublicKey)
   } else {
     X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
     sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
@@ -220,8 +250,8 @@ export function anonDecrypt (myKeys, ciphertext) {
   let X25519pk
   let X25519sk
   if (process.browser) {
-    X25519pk = convertPublicKeyToX25519(myKeys.publicKey)
-    X25519sk = convertSecretKeyToX25519(myKeys.privateKey)
+    X25519pk = libsodium.crypto_sign_ed25519_pk_to_curve25519(myKeys.publicKey)
+    X25519sk = libsodium.crypto_sign_ed25519_sk_to_curve25519(myKeys.privateKey)
   } else {
     X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
     X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
@@ -232,29 +262,29 @@ export function anonDecrypt (myKeys, ciphertext) {
   return sodium.crypto_box_seal_open(decrypted, ciphertext, X25519pk, X25519sk) && decrypted
 }
 
-export function secretEncrypt (secretKey, message, nonce) {
+export function secretEncrypt (secretKey, message, nonce, ad = Buffer.alloc(0)) {
   secretEncryptErrorHandler(arguments)
   let n
   message = ensureBuffer(message)
   if (!nonce) {
-    n = Buffer.alloc(sodium.crypto_secretbox_NONCEBYTES)
+    n = Buffer.alloc(NONCEBYTES)
     sodium.randombytes_buf(n)
   } else {
     n = nonce
   }
-  const ciphertext = Buffer.alloc(message.length + sodium.crypto_secretbox_MACBYTES)
-  sodium.crypto_secretbox_easy(ciphertext, message, n, secretKey)
+  const ciphertext = Buffer.alloc(message.length + sodium.crypto_aead_chacha20poly1305_ietf_ABYTES)
+  sodium.crypto_aead_chacha20poly1305_ietf_encrypt(ciphertext, message, ad, null, n, secretKey)
   return !nonce ? Buffer.concat([n, ciphertext]) : ciphertext
 }
 
-export function secretDecrypt (secretKey, ciphertext, nonce) {
+export function secretDecrypt (secretKey, ciphertext, nonce, ad = Buffer.alloc(0)) {
   secretEncryptErrorHandler(arguments)
   if (!nonce) {
-    nonce = ciphertext.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
-    ciphertext = ciphertext.subarray(sodium.crypto_secretbox_NONCEBYTES)
+    nonce = ciphertext.subarray(0, NONCEBYTES)
+    ciphertext = ciphertext.subarray(NONCEBYTES)
   }
-  const output = Buffer.alloc(ciphertext.length - sodium.crypto_secretbox_MACBYTES)
-  sodium.crypto_secretbox_open_easy(output, ciphertext, nonce, secretKey)
+  const output = Buffer.alloc(ciphertext.length - sodium.crypto_aead_chacha20poly1305_ietf_ABYTES)
+  sodium.crypto_aead_chacha20poly1305_ietf_decrypt(output, null, ciphertext, ad, nonce, secretKey)
   return output
 }
 
@@ -329,8 +359,8 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
 
   const protectedencoded = encode(Buffer.from(canonicalize({
     enc: CIPHERALGID,
-    typ: `FAYTHE/${VERSION}`,
-    alg: senderKeys ? 'auth' : 'anon',
+    typ: `${PROTOCOL}/${VERSION}`,
+    alg: senderKeys ? 'Authcrypt' : 'Anoncrypt',
     recipients
   }))).toString()
 
@@ -351,8 +381,8 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
     result.signature = encode(signature).toString()
   }
 
-  cek.fill(0)
-  nonce.fill(0)
+  sodium.sodium_memzero(cek)
+  sodium.sodium_memzero(nonce)
   return result
 }
 
@@ -370,7 +400,7 @@ export function unpackMessage (packed, recipientKeys) {
   let verified = false
   protectedParsed.recipients.forEach((recipient) => {
     if (recipient.header.kid === encode(recipientKeys.publicKey).toString()) {
-      if (protectedParsed.alg === 'auth') {
+      if (protectedParsed.alg === 'Authcrypt') {
         const senderPublicKey = this.anonDecrypt(
           recipientKeys,
           decode(recipient.header.sender))
@@ -395,10 +425,10 @@ export function unpackMessage (packed, recipientKeys) {
             decrypted = false
           }
         }
-        cek.fill(0)
+        sodium.sodium_memzero(cek)
       }
 
-      if (protectedParsed.alg === 'anon') {
+      if (protectedParsed.alg === 'Anoncrypt') {
         const cek = this.anonDecrypt(
           recipientKeys,
           decode(recipient.encrypted_key))
@@ -409,7 +439,7 @@ export function unpackMessage (packed, recipientKeys) {
           decode(packed.iv),
           Buffer.from(packed.protected))
 
-        cek.fill(0)
+        sodium.sodium_memzero(cek)
       }
     }
   })

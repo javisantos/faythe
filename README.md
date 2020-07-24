@@ -6,7 +6,7 @@ An easy crypto library to send messages using key encapsulation. A courier for A
 
 ## Why
 
-Mainly to learn crypto, and i wanted to have a pure javascript library that works in the browser and node with a simple api. Another requirement was that it had to be versioned and with fixed constants.
+Mainly to learn crypto, and i wanted to have library that works in the browser and node with a simple api. Another requirement was that it had to be versioned and with fixed constants.
 
 ## Installation
 

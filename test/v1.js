@@ -7,16 +7,17 @@ const faythe = require('../src/v1')
 let alice, bob, charlie
 
 ['node', 'browser'].forEach((env) => {
-  test('Init (' + env + ')', (t) => {
+  test('Init (' + env + ')', async (t) => {
+    await faythe.ready()
     t.assert(faythe.VERSION === '1', 'Should be v1')
     if (env === 'browser') {
       process.browser = true
     } else {
       process.browser = false
     }
-    alice = new faythe.Identity(Buffer.alloc(64, 'secret'))
-    bob = new faythe.Identity()
-    charlie = new faythe.Identity('secret')
+    alice = alice || new faythe.Identity(Buffer.alloc(64, 'secret'))
+    bob = bob || new faythe.Identity()
+    charlie = charlie || new faythe.Identity('secret', 'test', 'charlie', 0, false)
     t.end()
   })
 
@@ -36,6 +37,12 @@ let alice, bob, charlie
 
   test('hash (' + env + ')', (t) => {
     const hash = faythe.hash('Hello world')
+    t.equal(hash.length, faythe.HASHBYTES, `Should be ${faythe.HASHBYTES} bytes long`)
+    t.end()
+  })
+
+  test('hashBatch (' + env + ')', (t) => {
+    const hash = faythe.hashBatch(['Hello world', 'Hello world'])
     t.equal(hash.length, faythe.HASHBYTES, `Should be ${faythe.HASHBYTES} bytes long`)
     t.end()
   })
@@ -259,27 +266,29 @@ let alice, bob, charlie
   })
 
   test('Derive (' + env + ')', (t) => {
-    const derived = faythe.derive(Buffer.alloc(32, 'test'), 'Alice2', 'test')
+    const derived = faythe.derive(Buffer.alloc(32, 'test'), 'test', 'Alice2')
     t.deepEqual(derived.toString('hex'), '7de8fd0627eb12f948166b0e0e6a4a58a4d4382c4189b0af49f5eb1ff3907420', 'Should derive a key')
     t.end()
   })
 
-  test('Identity toJson (' + env + ')', (t) => {
-    const Alice = new faythe.Identity()
-    t.deepEqual(Alice.toJson().type, 'Ed25519VerificationKey2018', 'Should return a Ed25519VerificationKey2018')
+  test('Derive from key (' + env + ')', (t) => {
+    const derived1 = faythe.deriveFromKey(Buffer.alloc(32, 'test'), 0, 'test')
+    t.deepEqual(derived1.toString('hex'), '33606ba143d424144e9258a30c57655b88523f15e7c3097b67e3f97743da2a5d', 'Should derive from key')
+    const derived2 = faythe.deriveFromKey(Buffer.alloc(32, 'test'), 1, 'test')
+    t.deepEqual(derived2.toString('hex'), 'a21e1edde5a9de862ef62f8417bfbd8213e4eea4977fef9b53bc26719b7c6eab', 'Should derive from key')
+
     t.end()
   })
 
-  test('Identity keyExchange post-quantum (' + env + ')', (t) => {
-    const Alice = new faythe.Identity()
-    const Bob = new faythe.Identity()
+  test('Identity toJson (' + env + ')', (t) => {
+    t.deepEqual(alice.toJson().type, 'Ed25519VerificationKey2018', 'Should return a Ed25519VerificationKey2018')
+    t.end()
+  })
 
-    const AlicesOffer = Alice.offer('Bob')
-    const BobAccept = Bob.accept(AlicesOffer, 'Alice')
-
-    Alice.finish(BobAccept, 'Bob')
-
-    t.deepEqual(Alice.sharedKeys.get('Bob'), Bob.sharedKeys.get('Alice'), 'Should share the same key')
+  test('Namespace (' + env + ')', (t) => {
+    const Agent = new faythe.Identity('mysecret', 'lor', 'agent', 0, false)
+    const Member = new faythe.Identity('mysecret', Agent.namespace, 'javi', 0, false)
+    t.deepEqual(faythe.encode(Member.namespace).toString(), faythe.encode(faythe.hashBatch([Agent.namespace, Member.publicKey])).toString(), 'Should be the same namespace')
     t.end()
   })
 })
