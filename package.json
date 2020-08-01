@@ -11,7 +11,6 @@
   },
   "main": "index.js",
   "module": "main.js",
-
   "scripts": {
     "test": "tape -r esm test/v1.js | tap-spec",
     "coverage": "rimraf node_modules/.cache && nyc --reporter=text-summary --reporter=html tape test/v1.js",
@@ -31,7 +30,8 @@
     "esm": "^3.2.25",
     "libsodium-wrappers": "^0.7.6",
     "multihashes": "^1.0.1",
-    "sodium-universal": "^3.0.1"
+    "sodium-universal": "^3.0.1",
+    "thunky": "^1.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.10.4",

@@ -2,10 +2,12 @@
 import _libsodium from 'libsodium-wrappers' // pwhash, convert to curve25519
 import sodium from 'sodium-universal'
 import * as cbor from '@stablelib/cbor'
+import { NewHope } from '@stablelib/newhope'
 import { Buffer } from 'buffer'
 import multibase from 'multibase'
 import canonicalize from 'canonicalize'
 import sha512 from 'sha512-wasm' // browser wait for wasm to load
+import thunky from 'thunky/promise'
 
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1'
@@ -80,10 +82,6 @@ export class Identity {
 
     const keyPair = this.keyPairFor(this.idspace)
     this.preRotatedKey = hash(this.keyPairFor(this.idspace, deriveFromKey(stretchedKey, rotation + 1, 'rotation')).publicKey)
-    // this.did = "A+base64url(publicKey)"
-    // console.log(encode(keyPair.publicKey), encode(keyPair.publicKey).length, encode(keyPair.publicKey).toString())
-    // this.inceptionData = [derivation,publicKey, config]
-    // this.inception = [this.inceptionData, signature]
     this.namespace = hashBatch([this.idspace, keyPair.publicKey])
     this.verPublicKey = Buffer.from(keyPair.publicKey)
     this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
@@ -92,6 +90,29 @@ export class Identity {
   keyPairFor (idspace, masterKey) {
     if (!this.locked) return generateKeyPair(derive(masterKey || this[MASTERKEY], idspace, this.name))
     else return null
+  }
+
+  offer (id) {
+    const nh = new NewHope()
+    const offer = nh.offer()
+    this.offers.set(id, nh.saveState())
+    return offer
+  }
+
+  accept (offerMsg, id) {
+    const nh = new NewHope()
+    const accept = nh.accept(offerMsg)
+    this.sharedKeys.set(id, nh.getSharedKey())
+    return accept
+  }
+
+  finish (acceptMsg, id) {
+    const nh = new NewHope()
+    nh.restoreState(this.offers.get(id))
+    nh.finish(acceptMsg)
+    this.sharedKeys.set(id, nh.getSharedKey())
+    this.offers.delete(id)
+    return nh.getSharedKey()
   }
 
   get publicKey () {
@@ -133,6 +154,10 @@ export class Identity {
 }
 
 export async function ready (cb) {
+  return thunky(await _ready(cb))
+}
+
+async function _ready (cb) {
   await _libsodium.ready
   libsodium = _libsodium
   return new Promise(resolve => {
