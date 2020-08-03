@@ -31,7 +31,7 @@
     "@stablelib/xchacha20poly1305": "^1.0.0",
     "canonicalize": "^1.0.1",
     "esm": "^3.2.25",
-    "multibase": "^1.0.1"
+    "multibase": "^3.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.10.3",
