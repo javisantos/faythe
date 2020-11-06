@@ -1,4 +1,3 @@
-
 import sodium from 'sodium-universal'
 import * as cbor from '@stablelib/cbor'
 import { NewHope } from '@stablelib/newhope'
@@ -68,7 +67,7 @@ const secretEncryptErrorHandler = function (args) {
 }
 
 export class Identity extends EventEmitter {
-  constructor (passphrase, idspace, name, rotation = 0, mnemonic, seed) {
+  constructor (passphrase, idspace, name, rotation, mnemonic, seed) {
     super()
     this.contents = []
     this.encryptedContents = null
@@ -87,7 +86,7 @@ export class Identity extends EventEmitter {
       value: this[SEED]
     })
     this._locked = false
-    this.rotation = rotation
+    this.rotation = rotation || 0
 
     this.contents.push({
       type: 'rotation',
