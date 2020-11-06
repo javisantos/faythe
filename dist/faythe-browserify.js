@@ -53062,12 +53062,9 @@ var Identity = /*#__PURE__*/function (_EventEmitter) {
 
   var _super = _createSuper(Identity);
 
-  function Identity(passphrase, idspace, name) {
+  function Identity(passphrase, idspace, name, rotation, mnemonic, seed) {
     var _this;
 
-    var rotation = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : 0;
-    var mnemonic = arguments.length > 4 ? arguments[4] : undefined;
-    var seed = arguments.length > 5 ? arguments[5] : undefined;
     (0, _classCallCheck2["default"])(this, Identity);
     _this = _super.call(this);
     _this.contents = [];
@@ -53092,7 +53089,7 @@ var Identity = /*#__PURE__*/function (_EventEmitter) {
     });
 
     _this._locked = false;
-    _this.rotation = rotation;
+    _this.rotation = rotation || 0;
 
     _this.contents.push({
       type: 'rotation',
