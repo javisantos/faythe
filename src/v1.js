@@ -96,9 +96,9 @@ export class Identity extends EventEmitter {
     this.idspace = idspace ? ensureBuffer(idspace) : ensureBuffer('idspace')
     this.name = name || 'master'
 
-    this[MASTERKEY] = deriveFromKey(this[SEED], rotation, '_master_') // 32 bytes
+    this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_master_') // 32 bytes
 
-    this.preRotatedKey = hash(this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], rotation + 1, '_master_')).publicKey)
+    this.preRotatedKey = hash(this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], this.rotation + 1, '_master_')).publicKey)
     this.emit('unlocked')
 
     const keyPair = this.keyPairFor(this.idspace, this.name)
