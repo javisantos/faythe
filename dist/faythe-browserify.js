@@ -53098,9 +53098,9 @@ var Identity = /*#__PURE__*/function (_EventEmitter) {
 
     _this.idspace = idspace ? ensureBuffer(idspace) : ensureBuffer('idspace');
     _this.name = name || 'master';
-    _this[MASTERKEY] = deriveFromKey(_this[SEED], rotation, '_master_'); // 32 bytes
+    _this[MASTERKEY] = deriveFromKey(_this[SEED], _this.rotation, '_master_'); // 32 bytes
 
-    _this.preRotatedKey = hash(_this.keyPairFor(_this.idspace, 'prerotated', deriveFromKey(_this[SEED], rotation + 1, '_master_')).publicKey);
+    _this.preRotatedKey = hash(_this.keyPairFor(_this.idspace, 'prerotated', deriveFromKey(_this[SEED], _this.rotation + 1, '_master_')).publicKey);
 
     _this.emit('unlocked');
 
