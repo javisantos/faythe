@@ -1,16 +1,15 @@
 
-import _libsodium from 'libsodium-wrappers' // pwhash, convert to curve25519
 import sodium from 'sodium-universal'
 import * as cbor from '@stablelib/cbor'
 import { NewHope } from '@stablelib/newhope'
+import { EventEmitter } from 'events'
 import { Buffer } from 'buffer'
 import multibase from 'multibase'
 import canonicalize from 'canonicalize'
-import sha512 from 'sha512-wasm' // browser wait for wasm to load
-import thunky from 'thunky/promise'
+import { generateMnemonic, mnemonicToSeedSync } from 'bip39'
 
 export const PROTOCOL = 'FAYTHE'
-export const VERSION = '1'
+export const VERSION = '1.0'
 export const RANDOMBYTES = 32
 export const NONCEBYTES = 12
 export const HASHBYTES = 32
@@ -22,23 +21,25 @@ export const MIN_SEEDBYTES = 16
 export const AUTHTAGLENGTH = 16
 export const ENCODER = 'base64url'
 export const SERIALIZER = 'cbor'
-export const ENCRYPTIONKEYTYPE = 'x25519'
+export const ENCRYPTIONKEYTYPE = 'X25519EncryptionKey2018'
 export const VERIFICATIONKEYTYPE = 'Ed25519VerificationKey2018'
 
-export const CIPHERALG = 'Chacha20-Poly1305'
-export const CIPHERALGID = 'C20P'
+export const CIPHERALG = 'chacha20poly1305_ietf'
 export const HASHALG = 'blake2b-256'
+export const KDF = 'PBKDF2'
+export const MNEMONIC = 'BIP39'
 
-let libsodium
+// let libsodium
 const MASTERKEY = Symbol('MASTERKEY')
+const SEED = Symbol('SEED')
 
-const encode = (buffer) => multibase.encode(ENCODER, buffer)
-const decode = (bufOrString) => multibase.decode(bufOrString)
+const encode = (buffer, encoder = ENCODER) => new TextDecoder('utf-8').decode(multibase.encode(encoder, buffer))
+const decode = (bufOrString) => Buffer.from(multibase.decode(bufOrString))
 
 const serialize = cbor.encode
 const deserialize = cbor.decode
 
-export { canonicalize, encode, decode, serialize, deserialize }
+export { canonicalize, encode, decode, serialize, deserialize, generateMnemonic }
 
 export function randomBytes (bytes) {
   const b = Buffer.alloc(bytes)
@@ -66,52 +67,119 @@ const secretEncryptErrorHandler = function (args) {
   if (args[3] && !Buffer.isBuffer(args[3])) throw new TypeError('AAD must be a Buffer')
 }
 
-export class Identity {
-  constructor (passphrase, idspace, name, rotation = 0, sensitive = false) {
-    if (!passphrase) passphrase = randomBytes(MIN_SEEDBYTES)
-    else passphrase = ensureBuffer(passphrase)
-    this.seed = passphrase
-    this.idspace = idspace ? ensureBuffer(idspace) : Buffer.alloc(RANDOMBYTES, 'local')
-    this.name = name || 'identity'
-    this.rotation = rotation
-    const salt = hashBatch([this.idspace, ensureBuffer(this.name)], libsodium.crypto_pwhash_SALTBYTES) // 16 bytes
-
-    const stretchedKey = pwhash(passphrase, salt, sensitive) // if sensitive is true, this can take few seconds...
+export class Identity extends EventEmitter {
+  constructor (passphrase, idspace, name, rotation = 0, mnemonic, seed) {
+    super()
+    this.contents = []
+    this.encryptedContents = null
+    if (mnemonic) {
+      this.mnemonic = mnemonic
+    } else {
+      this.mnemonic = seed ? null : generateMnemonic(256)
+    }
+    if (!passphrase) passphrase = null
+    this[SEED] = seed ? ensureBuffer(seed) : (passphrase ? Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)) : randomBytes(32))
+    if (passphrase && seed && this[SEED].toString('hex') !== mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES).toString('hex')) {
+      throw new Error('Invalid identity')
+    }
+    this.contents.push({
+      type: 'seed',
+      value: this[SEED]
+    })
     this._locked = false
-    this[MASTERKEY] = deriveFromKey(stretchedKey, rotation, 'rotation') // 32 bytes
+    this.rotation = rotation
 
-    const keyPair = this.keyPairFor(this.idspace)
-    this.preRotatedKey = hash(this.keyPairFor(this.idspace, deriveFromKey(stretchedKey, rotation + 1, 'rotation')).publicKey)
+    this.contents.push({
+      type: 'rotation',
+      value: rotation
+    })
+
+    this.idspace = idspace ? ensureBuffer(idspace) : ensureBuffer('idspace')
+    this.name = name || 'master'
+
+    this[MASTERKEY] = deriveFromKey(this[SEED], rotation, '_master_') // 32 bytes
+
+    this.preRotatedKey = hash(this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], rotation + 1, '_master_')).publicKey)
+    this.emit('unlocked')
+
+    const keyPair = this.keyPairFor(this.idspace, this.name)
+
     this.namespace = hashBatch([this.idspace, keyPair.publicKey])
     this.verPublicKey = Buffer.from(keyPair.publicKey)
     this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
+    this.emit('change')
   }
 
-  keyPairFor (idspace, masterKey) {
-    if (!this.locked) return generateKeyPair(derive(masterKey || this[MASTERKEY], idspace, this.name))
-    else return null
+  keyPairFor (idspace, name, key) {
+    if (!idspace) throw new Error('Idspace is required')
+    if (!this.locked) {
+      const kp = generateKeyPair(derive(key || this[SEED], idspace, name || this.name))
+      this.contents.push({
+        type: VERIFICATIONKEYTYPE,
+        idspace,
+        name,
+        image: null,
+        description: null,
+        tags: ['keyPair', 'verification'],
+        correlation: [],
+        publicKey: kp.publicKey,
+        privateKey: kp.privateKey
+      })
+      this.emit('change')
+      return kp
+    } else return null
+  }
+
+  export () {
+    this.encryptedContents = secretEncrypt(this[SEED], Buffer.from(serialize(this.contents)))
+    return this.encryptedContents
+  }
+
+  import (data) {
+    this.contents = deserialize(secretDecrypt(this[SEED], data))
+    return this.contents
   }
 
   offer (id) {
     const nh = new NewHope()
     const offer = nh.offer()
-    this.offers.set(id, nh.saveState())
+    this.contents.push({
+      type: 'connection',
+      name: id,
+      offer,
+      state: nh.saveState(),
+      status: 'offered'
+    })
+    this.emit('change')
     return offer
   }
 
   accept (offerMsg, id) {
     const nh = new NewHope()
     const accept = nh.accept(offerMsg)
-    this.sharedKeys.set(id, nh.getSharedKey())
+    this.contents.push({
+      type: 'connection',
+      name: id,
+      offer: offerMsg,
+      sharedKey: Buffer.from(nh.getSharedKey()),
+      status: 'connected'
+    })
+    this.emit('change')
     return accept
   }
 
   finish (acceptMsg, id) {
     const nh = new NewHope()
-    nh.restoreState(this.offers.get(id))
+    nh.restoreState(this.contents.find((c) => c.name === id).state)
     nh.finish(acceptMsg)
-    this.sharedKeys.set(id, nh.getSharedKey())
-    this.offers.delete(id)
+    this.contents = this.contents.map((c) => {
+      if (c.name === id) {
+        c.sharedKey = Buffer.from(nh.getSharedKey())
+        c.status = 'connected'
+      }
+      return c
+    })
+    this.emit('change')
     return nh.getSharedKey()
   }
 
@@ -128,44 +196,41 @@ export class Identity {
   }
 
   lock () {
+    this.export()
+    this.contents = []
     sodium.sodium_memzero(this[MASTERKEY])
-    sodium.sodium_memzero(this.seed)
+    sodium.sodium_memzero(this[SEED])
     sodium.sodium_memzero(this.verPublicKey)
     sodium.sodium_memzero(this.verPrivateKey)
     this._locked = true
+    this.emit('locked')
+  }
+
+  unlock (passphrase) {
+    const unlockedIdentity = Identity.fromSeed(Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)))
+    unlockedIdentity.contents = unlockedIdentity.import(this.encryptedContents)
+    this.emit('unlocked')
+    return unlockedIdentity
   }
 
   toJson () {
     return {
-      id: encode(this.publicKey).toString().substring(1, 8),
       type: VERIFICATIONKEYTYPE,
-      controller: '#id',
       publicKeyMultiBase: encode(this.publicKey).toString(),
       publicKeyBase64url: encode(this.publicKey).toString().substring(1),
       publicKeyBase64: this.publicKey.toString('base64'),
       publicKeyHex: this.publicKey.toString('hex'),
-      publicKeyBase58: multibase.encode('base58btc', this.publicKey).toString().substring(1)
+      publicKeyBase58: encode(this.publicKey, 'base58btc').toString().substring(1)
     }
   }
 
-  static ready (cb) {
-    return ready(cb)
+  static fromMnemonic (mnemonic, passphrase, idspace, name, rotation) {
+    return new Identity(passphrase, idspace, name, rotation, mnemonic)
   }
-}
 
-export async function ready (cb) {
-  return thunky(await _ready(cb))
-}
-
-async function _ready (cb) {
-  await _libsodium.ready
-  libsodium = _libsodium
-  return new Promise(resolve => {
-    sha512.ready(() => {
-      if (cb) cb()
-      resolve()
-    })
-  })
+  static fromSeed (seed, mnemonic, passphrase, idspace, name, rotation) {
+    return new Identity(mnemonic, passphrase, idspace, name, rotation, ensureBuffer(seed))
+  }
 }
 
 export function generateKeyPair (seed = randomBytes(RANDOMBYTES)) {
@@ -188,16 +253,9 @@ export function hash (data, bytes, key) {
 export function hashBatch (data, bytes, key) {
   const b = Buffer.alloc(bytes || HASHBYTES)
   data = data.map(d => ensureBuffer(d))
-  if (key) sodium.crypto_generichash_batch(b, ensureBuffer(data), key)
+  if (key) sodium.crypto_generichash_batch(b, data, key)
   else sodium.crypto_generichash_batch(b, data)
   return b
-}
-
-export function pwhash (password, salt, sensitive) {
-  return libsodium.crypto_pwhash(RANDOMBYTES, ensureBuffer(password), salt,
-    sensitive ? libsodium.crypto_pwhash_OPSLIMIT_SENSITIVE : libsodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sensitive ? libsodium.crypto_pwhash_MEMLIMIT_SENSITIVE : libsodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    libsodium.crypto_pwhash_ALG_DEFAULT)
 }
 
 export function derive (key, namespace, name) {
@@ -218,17 +276,10 @@ export function deriveFromKey (key, int, ctx) {
 }
 
 export function precomputeSharedKey (myPrivateKey, theirPublicKey, initiator) {
-  let X25519pk
-  let X25519sk
-  if (process.browser) {
-    X25519pk = libsodium.crypto_sign_ed25519_pk_to_curve25519(theirPublicKey)
-    X25519sk = libsodium.crypto_sign_ed25519_sk_to_curve25519(myPrivateKey)
-  } else {
-    X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
-    X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
-    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
-    sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myPrivateKey)
-  }
+  const X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+  const X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
+  sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
+  sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myPrivateKey)
 
   const sharedSecret = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
 
@@ -259,46 +310,36 @@ export function authDecrypt (theirPublicKey, myPrivateKey, data, nonce) {
 
 export function anonEncrypt (theirPublicKey, message) {
   message = ensureBuffer(message)
-  let X25519pk
-  if (process.browser) {
-    X25519pk = libsodium.crypto_sign_ed25519_pk_to_curve25519(theirPublicKey)
-  } else {
-    X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
-    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
-  }
+  const X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+  sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, theirPublicKey)
+
   const ciphertext = Buffer.alloc(message.length + sodium.crypto_box_SEALBYTES)
   sodium.crypto_box_seal(ciphertext, message, X25519pk)
   return ciphertext
 }
 
 export function anonDecrypt (myKeys, ciphertext) {
-  let X25519pk
-  let X25519sk
-  if (process.browser) {
-    X25519pk = libsodium.crypto_sign_ed25519_pk_to_curve25519(myKeys.publicKey)
-    X25519sk = libsodium.crypto_sign_ed25519_sk_to_curve25519(myKeys.privateKey)
-  } else {
-    X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
-    X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
-    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, myKeys.publicKey)
-    sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myKeys.privateKey)
-  }
+  const X25519pk = Buffer.alloc(sodium.crypto_scalarmult_BYTES)
+  const X25519sk = Buffer.alloc(sodium.crypto_scalarmult_SCALARBYTES)
+  sodium.crypto_sign_ed25519_pk_to_curve25519(X25519pk, myKeys.publicKey)
+  sodium.crypto_sign_ed25519_sk_to_curve25519(X25519sk, myKeys.privateKey)
+
   const decrypted = Buffer.alloc(ciphertext.length - sodium.crypto_box_SEALBYTES)
   return sodium.crypto_box_seal_open(decrypted, ciphertext, X25519pk, X25519sk) && decrypted
 }
 
-export function secretEncrypt (secretKey, message, nonce, ad = Buffer.alloc(0)) {
+export function secretEncrypt (secretKey, data, nonce, ad = Buffer.alloc(0)) {
   secretEncryptErrorHandler(arguments)
   let n
-  message = ensureBuffer(message)
+  data = ensureBuffer(data)
   if (!nonce) {
     n = Buffer.alloc(NONCEBYTES)
     sodium.randombytes_buf(n)
   } else {
     n = nonce
   }
-  const ciphertext = Buffer.alloc(message.length + sodium.crypto_aead_chacha20poly1305_ietf_ABYTES)
-  sodium.crypto_aead_chacha20poly1305_ietf_encrypt(ciphertext, message, ad, null, n, secretKey)
+  const ciphertext = Buffer.alloc(data.length + sodium.crypto_aead_chacha20poly1305_ietf_ABYTES)
+  sodium.crypto_aead_chacha20poly1305_ietf_encrypt(ciphertext, data, ad, null, n, secretKey)
   return !nonce ? Buffer.concat([n, ciphertext]) : ciphertext
 }
 
@@ -356,38 +397,38 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
         sender = encode(this.anonEncrypt(
           recipientPublicKey,
           Buffer.from(senderKeys.publicKey)
-        )).toString()
+        ))
       } else {
         const publicKey = senderKeys.publicKey
         sender = encode(this.anonEncrypt(
           recipientPublicKey,
           Buffer.from(publicKey)
-        )).toString()
+        ))
       }
       return {
-        encrypted_key: encode(encryptedKey).toString(),
+        encrypted_key: encode(encryptedKey),
         header: {
-          kid: encode(recipientPublicKey).toString(),
+          kid: encode(recipientPublicKey),
           sender,
-          iv: encode(cekNonce).toString()
+          iv: encode(cekNonce)
         }
       }
     } else {
       return {
         header: {
-          kid: encode(recipientPublicKey).toString()
+          kid: encode(recipientPublicKey)
         },
-        encrypted_key: encode(encryptedKey).toString()
+        encrypted_key: encode(encryptedKey)
       }
     }
   })
 
   const protectedencoded = encode(Buffer.from(canonicalize({
-    enc: CIPHERALGID,
+    enc: CIPHERALG,
     typ: `${PROTOCOL}/${VERSION}`,
     alg: senderKeys ? 'Authcrypt' : 'Anoncrypt',
     recipients
-  }))).toString()
+  })))
 
   const ciphertext = this.secretEncrypt(
     cek,
@@ -396,14 +437,14 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
     Buffer.from(protectedencoded))
   const result = {
     protected: protectedencoded,
-    ciphertext: encode(ciphertext.slice(AUTHTAGLENGTH, ciphertext.length)).toString(),
-    iv: encode(nonce).toString(),
-    tag: encode(ciphertext.slice(0, AUTHTAGLENGTH)).toString()
+    ciphertext: encode(ciphertext.slice(AUTHTAGLENGTH, ciphertext.length)),
+    iv: encode(nonce),
+    tag: encode(ciphertext.slice(0, AUTHTAGLENGTH))
   }
 
   if (nonRepubiable) {
     const signature = this.sign(senderKeys, message)
-    result.signature = encode(signature).toString()
+    result.signature = encode(signature)
   }
 
   sodium.sodium_memzero(cek)
@@ -415,16 +456,16 @@ export function unpackMessage (packed, recipientKeys) {
   let protectedParsed
 
   try {
-    protectedParsed = JSON.parse(decode(packed.protected).toString())
+    protectedParsed = JSON.parse(decode(packed.protected))
   } catch (error) {
     return false
   }
 
-  if (/** protectedParsed.enc !== CIPHERALGID || */ protectedParsed.typ !== `FAYTHE/${VERSION}`) return false
+  if (protectedParsed.typ !== `FAYTHE/${VERSION}`) return false
   let decrypted = false
   let verified = false
   protectedParsed.recipients.forEach((recipient) => {
-    if (recipient.header.kid === encode(recipientKeys.publicKey).toString()) {
+    if (recipient.header.kid === encode(recipientKeys.publicKey)) {
       if (protectedParsed.alg === 'Authcrypt') {
         const senderPublicKey = this.anonDecrypt(
           recipientKeys,

@@ -40,11 +40,8 @@
         bob: {}
       },
       created () {
-        console.log('faythe', faythe)
-        faythe.ready(() => {
-          this.alice = new faythe.Identity()
-          this.bob = new faythe.Identity()
-        })
+        this.alice = new faythe.Identity()
+        this.bob = new faythe.Identity()
       },
       methods: {
         handleEncrypt () {

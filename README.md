@@ -44,21 +44,21 @@ Returns an object, with the encrypted message and the keys to decrypt for each r
 
 Returns the `message` decrypted or `null` if something went wrong.
 
-#### `faythe.generateKeyPair()`
+#### `faythe.generateKeyPair([seed])`
 
 Returns an object with an ed25519 `publicKey` and `privateKey` 
 
-#### `faythe.hash(data)`
+#### `faythe.hash(data,[[bytes], [key]])`
 
 Returns a 32 bytes `Blake2b` hashed buffer 
 
 `data` can be a buffer, uintArray or string
 
-#### `faythe.derive (key, name, namespace)`
+#### `faythe.derive (key, [[namespace], [name]])`
 
 Uses blake2b to derive a 32 bytes key
 
-#### `faythe.precomputeSharedKey (myPrivateKey, theirPublicKey)`
+#### `faythe.precomputeSharedKey (myPrivateKey, theirPublicKey, [initiator])`
 
 Returns a shared secret between a public and private keys. Uses `diffieHellman`.
 
@@ -66,15 +66,15 @@ Returns a shared secret between a public and private keys. Uses `diffieHellman`.
 
 Authenticated (asymmetric) encryption between a public and private keys. The `nonce` is randomly generated if not present, then, concatenated to de begining of the ciphertext. Uses `XChaCha20Poly1305`.
 
-#### `faythe.authDecrypt (theirPublicKeyObject, myPrivateKeyObject, data, [nonce])`
+#### `faythe.authDecrypt (theirPublicKey, myPrivateKey, data, [nonce])`
 
 Authenticated (asymmetric) decryption between a public and private keys. If `nonce` is not present, is extracted from the ciphertext. Uses `XChaCha20Poly1305`.
 
-#### `faythe.secretEncrypt (sharedSecret, data, [nonce], [AAD])`
+#### `faythe.secretEncrypt (secretKey, data, [[nonce], [AAD]])`
 
 Anonymous (symmetric) encryption usin a common `sharedSecret`. `AAD` for addional data. Uses `XChaCha20Poly1305`.
 
-#### `faythe.secretDecrypt (sharedSecret, data, [nonce], [AAD])`
+#### `faythe.secretDecrypt (secretKey, data, [[nonce], [AAD]])`
 
 Anonymous (symmetric) decryption usin a common `sharedSecret`. Uses `XChaCha20Poly1305`.
 
@@ -88,52 +88,10 @@ Verifies the signature from the given publicKey.
 
 ## Identity
 
-#### `new faythe.Identity(masterkey, name, namespace)`
+#### `new faythe.Identity(passphrase, idspace, name, [[rotation], [mnemonic], [seed]])`
 
 Faythe export this class to easy manage identity related features. WIP
 
-
-## Dependencies
-
-- [@stablelib/cbor](https://ghub.io/@stablelib/cbor): CBOR encoder and decoder
-- [@stablelib/ed25519](https://ghub.io/@stablelib/ed25519): Ed25519 public-key signature (EdDSA with Curve25519)
-- [@stablelib/newhope](https://ghub.io/@stablelib/newhope): NewHope post-quantum secure key agreement
-- [@stablelib/xchacha20poly1305](https://ghub.io/@stablelib/xchacha20poly1305): XChaCha20-Poly1305 AEAD (draft-irtf-cfrg-xchacha-01)
-- [canonicalize](https://ghub.io/canonicalize): JSON canonicalize function 
-- [esm](https://ghub.io/esm): Tomorrow&#39;s ECMAScript modules today!
-- [multibase](https://ghub.io/multibase): JavaScript implementation of the multibase specification
-- [sodium-universal](https://ghub.io/sodium-universal): Universal wrapper for sodium-javascript and sodium-native working in Node.js and the Browser
-
-## Dev Dependencies
-
-- [@babel/core](https://ghub.io/@babel/core): Babel compiler core.
-- [@babel/plugin-transform-runtime](https://ghub.io/@babel/plugin-transform-runtime): Externalise references to helpers and builtins, automatically polyfilling your code without polluting globals
-- [@babel/preset-env](https://ghub.io/@babel/preset-env): A Babel preset for each environment.
-- [@rollup/plugin-commonjs](https://ghub.io/@rollup/plugin-commonjs): Convert CommonJS modules to ES2015
-- [@rollup/plugin-node-resolve](https://ghub.io/@rollup/plugin-node-resolve): Locate and bundle third-party dependencies in node_modules
-- [@rollup/plugin-replace](https://ghub.io/@rollup/plugin-replace): Replace strings in files while bundling
-- [@rollup/plugin-wasm](https://ghub.io/@rollup/plugin-wasm): Import WebAssembly code with Rollup
-- [babelify](https://ghub.io/babelify): Babel browserify transform
-- [browserify](https://ghub.io/browserify): browser-side require() the node way
-- [coveralls](https://ghub.io/coveralls): takes json-cov output into stdin and POSTs to coveralls.io
-- [eslint](https://ghub.io/eslint): An AST-based pattern checker for JavaScript.
-- [eslint-config-standard](https://ghub.io/eslint-config-standard): JavaScript Standard Style - ESLint Shareable Config
-- [eslint-plugin-html](https://ghub.io/eslint-plugin-html): A ESLint plugin to lint and fix inline scripts contained in HTML files.
-- [eslint-plugin-import](https://ghub.io/eslint-plugin-import): Import with sanity.
-- [eslint-plugin-node](https://ghub.io/eslint-plugin-node): Additional ESLint&#39;s rules for Node.js
-- [eslint-plugin-promise](https://ghub.io/eslint-plugin-promise): Enforce best practices for JavaScript promises
-- [eslint-plugin-standard](https://ghub.io/eslint-plugin-standard): ESlint Plugin for the Standard Linter
-- [https-pem](https://ghub.io/https-pem): Self-signed PEM key and certificate ready for use in your HTTPS server
-- [lerna](https://ghub.io/lerna): A tool for managing JavaScript projects with multiple packages.
-- [nyc](https://ghub.io/nyc): the Istanbul command line interface
-- [rollup](https://ghub.io/rollup): Next-generation ES module bundler
-- [rollup-plugin-browserify-transform](https://ghub.io/rollup-plugin-browserify-transform): Use Browserify transforms with Rollup
-- [rollup-plugin-node-globals](https://ghub.io/rollup-plugin-node-globals): insert the same globals browserify does
-- [rollup-plugin-node-polyfills](https://ghub.io/rollup-plugin-node-polyfills): An easy crypto library to send messages using key encapsulation. A courier for Alice and Bob.
-- [rollup-plugin-terser](https://ghub.io/rollup-plugin-terser): Rollup plugin to minify generated es bundle
-- [tap-nyc](https://ghub.io/tap-nyc): nyc compatible TAP output formatter
-- [tap-spec](https://ghub.io/tap-spec): Formatted TAP output like Mocha&#39;s spec reporter
-- [tape](https://ghub.io/tape): tap-producing test harness for node and browsers
 
 ## License
 
