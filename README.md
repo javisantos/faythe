@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/javisantos/faythe.svg?branch=sodium-universal)](https://travis-ci.org/javisantos/faythe) [![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=sodium-universal)](https://coveralls.io/github/javisantos/faythe?branch=sodium-universal)
+[![Build Status](https://travis-ci.org/javisantos/faythe.svg?branch=master)](https://travis-ci.org/javisantos/faythe) [![Coverage Status](https://coveralls.io/repos/github/javisantos/faythe/badge.svg?branch=master)](https://coveralls.io/github/javisantos/faythe?branch=master)
 
 # Faythe
 
