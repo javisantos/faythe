@@ -1,11 +1,11 @@
 import sodium from 'sodium-universal'
-import * as cbor from '@stablelib/cbor'
-import { NewHope } from '@stablelib/newhope'
+import cbor from 'cbor'
 import { EventEmitter } from 'events'
 import { Buffer } from 'buffer'
 import multibase from 'multibase'
 import canonicalize from 'canonicalize'
 import { generateMnemonic, mnemonicToSeedSync } from 'bip39'
+import noise from 'noise-protocol'
 
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1.0'
@@ -22,23 +22,24 @@ export const ENCODER = 'base64url'
 export const SERIALIZER = 'cbor'
 export const ENCRYPTIONKEYTYPE = 'X25519EncryptionKey2018'
 export const VERIFICATIONKEYTYPE = 'Ed25519VerificationKey2018'
-
 export const CIPHERALG = 'chacha20poly1305_ietf'
 export const HASHALG = 'blake2b-256'
 export const KDF = 'PBKDF2'
 export const MNEMONIC = 'BIP39'
+export const HANDSHAKE = 'Noise_NN_25519_ChaChaPoly_BLAKE2b'
 
 // let libsodium
 const MASTERKEY = Symbol('MASTERKEY')
+const ROTATIONKEY = Symbol('ROTATIONKEY')
 const SEED = Symbol('SEED')
 
 const encode = (buffer, encoder = ENCODER) => new TextDecoder('utf-8').decode(multibase.encode(encoder, buffer))
 const decode = (bufOrString) => Buffer.from(multibase.decode(bufOrString))
 
 const serialize = cbor.encode
-const deserialize = cbor.decode
+const deserialize = cbor.decodeFirstSync
 
-export { canonicalize, encode, decode, serialize, deserialize, generateMnemonic }
+export { canonicalize, encode, decode, serialize, deserialize, generateMnemonic, noise }
 
 export function randomBytes (bytes) {
   const b = Buffer.alloc(bytes)
@@ -67,66 +68,110 @@ const secretEncryptErrorHandler = function (args) {
 }
 
 export class Identity extends EventEmitter {
-  constructor (passphrase, idspace, name, rotation, mnemonic, seed) {
+  constructor (idspace, name, passphrase, rotation, mnemonic, seed) {
     super()
     this.contents = []
     this.encryptedContents = null
+    this._locked = false
+    this.rotation = rotation || 0
+
     if (mnemonic) {
       this.mnemonic = mnemonic
     } else {
       this.mnemonic = seed ? null : generateMnemonic(256)
     }
-    if (!passphrase) passphrase = null
-    this[SEED] = seed ? ensureBuffer(seed) : (passphrase ? Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)) : randomBytes(32))
+
+    this[SEED] = seed ? ensureBuffer(seed) : Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES))
+
     if (passphrase && seed && this[SEED].toString('hex') !== mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES).toString('hex')) {
       throw new Error('Invalid identity')
     }
+
     this.contents.push({
       type: 'seed',
       value: this[SEED]
     })
-    this._locked = false
-    this.rotation = rotation || 0
-
+    if (this.mnemonic) {
+      this.contents.push({
+        type: 'mnemonic',
+        value: this.mnemonic
+      })
+    }
     this.contents.push({
       type: 'rotation',
-      value: rotation
+      value: this.rotation
     })
 
     this.idspace = idspace ? ensureBuffer(idspace) : ensureBuffer('idspace')
-    this.name = name || 'master'
 
-    this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_master_') // 32 bytes
+    this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_faythe_') // 32 bytes
 
-    this.preRotatedKey = hash(this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], this.rotation + 1, '_master_')).publicKey)
-    this.emit('unlocked')
+    this.name = name || 'default'
 
-    const keyPair = this.keyPairFor(this.idspace, this.name)
+    const keyPair = this.keyPairFor(this.idspace, name, this[MASTERKEY], { description: `Master KeyPair for ${encode(this.idspace)}` })
 
     this.namespace = hashBatch([this.idspace, keyPair.publicKey])
+
+    this[ROTATIONKEY] = hash(this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), { tags: ['rotation'], correlation: [encode(this.namespace)], description: `Rotation KeyPair for ${encode(this.idspace)}` }).publicKey)
+
     this.verPublicKey = Buffer.from(keyPair.publicKey)
     this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
+
+    this.on('change', () => this.export())
+
+    this.emit('unlocked')
     this.emit('change')
+
+    this.setMaxListeners(0)
   }
 
-  keyPairFor (idspace, name, key) {
-    if (!idspace) throw new Error('Idspace is required')
+  keyPairFor (space, name, key, info = {}) {
+    if (!space) throw new Error('Idspace is required')
+    const correlation = info.correlation ? [encode(ensureBuffer(space))].concat(info.correlation) : [encode(ensureBuffer(space))]
+    const tags = info.tags ? ['keyPair', 'verification'].concat(info.tags) : ['keyPair', 'verification']
+    const n = name || this.name
     if (!this.locked) {
-      const kp = generateKeyPair(derive(key || this[SEED], idspace, name || this.name))
-      this.contents.push({
+      let exist = false
+      if (!key || key.equals(this[MASTERKEY])) {
+        exist = this.contents.find(c => {
+          if (c.idspace === encode(ensureBuffer(space)) && c.name === n) {
+            return true
+          } else {
+            return false
+          }
+        })
+        if (exist) return exist
+      }
+      const keyPair = generateKeyPair(derive(key || this[MASTERKEY], space, name || this.name))
+      const namespace = hashBatch([space, keyPair.publicKey])
+      const kp = {
         type: VERIFICATIONKEYTYPE,
-        idspace,
-        name,
-        image: null,
-        description: null,
-        tags: ['keyPair', 'verification'],
-        correlation: [],
-        publicKey: kp.publicKey,
-        privateKey: kp.privateKey
-      })
+        idspace: encode(ensureBuffer(space)),
+        name: n,
+        namespace: encode(ensureBuffer(namespace)).toString(),
+        image: info.image || null,
+        description: info.description ? info.description : null,
+        tags,
+        correlation,
+        publicKey: keyPair.publicKey,
+        privateKey: keyPair.privateKey
+      }
+      this.contents.push(kp)
       this.emit('change')
-      return kp
+      return {
+        publicKey: keyPair.publicKey,
+        privateKey: keyPair.privateKey,
+        secretKey: keyPair.privateKey
+      }
     } else return null
+  }
+
+  isMember (namespace) {
+    if (this.idspace.toString('hex') === namespace.toString('hex')) {
+      return true
+    } else {
+      return false
+    }
   }
 
   export () {
@@ -140,46 +185,61 @@ export class Identity extends EventEmitter {
   }
 
   offer (id) {
-    const nh = new NewHope()
-    const offer = nh.offer()
+    const hs = noise.initialize('NN', true, Buffer.alloc(0))
+    const offer = Buffer.alloc(32)
+    noise.writeMessage(hs, Buffer.alloc(0), offer)
+    const state = { symmetricState: hs.symmetricState, epk: hs.epk, esk: hs.esk }
     this.contents.push({
+      id,
       type: 'connection',
       name: id,
       offer,
-      state: nh.saveState(),
+      state,
       status: 'offered'
     })
     this.emit('change')
-    return offer
+    return { offer, state }
   }
 
-  accept (offerMsg, id) {
-    const nh = new NewHope()
-    const accept = nh.accept(offerMsg)
+  accept (id, offer) {
+    const hs = noise.initialize('NN', false, Buffer.alloc(0))
+    const rx = Buffer.alloc(0)
+    const tx = Buffer.alloc(48)
+    noise.readMessage(hs, offer, rx)
+    const sharedKeys = noise.writeMessage(hs, Buffer.alloc(0), tx)
+    const keyPair = generateKeyPair(sharedKeys.rx.slice(0, sodium.crypto_sign_SEEDBYTES))
     this.contents.push({
+      id,
       type: 'connection',
       name: id,
-      offer: offerMsg,
-      sharedKey: Buffer.from(nh.getSharedKey()),
+      offer: offer,
+      sharedKeys,
+      keyPair,
       status: 'connected'
     })
+    noise.destroy(hs)
     this.emit('change')
-    return accept
+    return tx
   }
 
-  finish (acceptMsg, id) {
-    const nh = new NewHope()
-    nh.restoreState(this.contents.find((c) => c.name === id).state)
-    nh.finish(acceptMsg)
+  finish (id, accept, state) {
+    const restoreState = state || this.contents.find((c) => c.name === id).state
+    const hs = noise.initialize('NN', true, Buffer.alloc(0), null, { publicKey: restoreState.epk, secretKey: restoreState.esk })
+    hs.symmetricState = restoreState.symmetricState
+    hs.messagePatterns.shift()
+    const rx = Buffer.alloc(0)
+    const sharedKeys = noise.readMessage(hs, accept, rx)
     this.contents = this.contents.map((c) => {
-      if (c.name === id) {
-        c.sharedKey = Buffer.from(nh.getSharedKey())
+      if (c.id === id) {
+        c.sharedKeys = sharedKeys
+        c.keyPair = generateKeyPair(sharedKeys.rx.slice(0, sodium.crypto_sign_SEEDBYTES))
+        delete c.state
         c.status = 'connected'
       }
       return c
     })
+    noise.destroy(hs)
     this.emit('change')
-    return nh.getSharedKey()
   }
 
   get publicKey () {
@@ -187,6 +247,10 @@ export class Identity extends EventEmitter {
   }
 
   get privateKey () {
+    return this.verPrivateKey
+  }
+
+  get secretKey () {
     return this.verPrivateKey
   }
 
@@ -206,7 +270,7 @@ export class Identity extends EventEmitter {
   }
 
   unlock (passphrase) {
-    const unlockedIdentity = Identity.fromSeed(Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)))
+    const unlockedIdentity = Identity.fromSeed(Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)), this.idspace, this.name)
     unlockedIdentity.contents = unlockedIdentity.import(this.encryptedContents)
     this.emit('unlocked')
     return unlockedIdentity
@@ -223,12 +287,13 @@ export class Identity extends EventEmitter {
     }
   }
 
-  static fromMnemonic (mnemonic, passphrase, idspace, name, rotation) {
-    return new Identity(passphrase, idspace, name, rotation, mnemonic)
+  static fromMnemonic (mnemonic, idspace, name, passphrase, rotation, seed) {
+    if (!mnemonic) throw new Error('Mnemonic is required')
+    return new Identity(idspace, name, passphrase, rotation, mnemonic, seed)
   }
 
-  static fromSeed (seed, mnemonic, passphrase, idspace, name, rotation) {
-    return new Identity(mnemonic, passphrase, idspace, name, rotation, ensureBuffer(seed))
+  static fromSeed (seed, idspace, name, passphrase, rotation, mnemonic) {
+    return new Identity(idspace, name, passphrase, rotation, mnemonic, ensureBuffer(seed))
   }
 }
 

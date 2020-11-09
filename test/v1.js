@@ -8,6 +8,7 @@ let alice, bob, charlie
 
 ['node'].forEach((env) => {
   test('Ready (' + env + ')', async (t) => {
+    t.assert(faythe.VERSION === '1.0', 'Should be v1')
     // await faythe.ready()
     // faythe.ready(() => {
     //   t.assert(true, 'Should be ready')
@@ -16,42 +17,57 @@ let alice, bob, charlie
   })
 
   test('Init (' + env + ')', async (t) => {
-    t.assert(faythe.VERSION === '1.0', 'Should be v1')
-    alice = alice || new faythe.Identity('secret')
+    alice = alice || new faythe.Identity('test', 'alice', 'secret')
+
     bob = bob || new faythe.Identity()
-    charlie = charlie || new faythe.Identity('basket', 'test', 'charlie', 1)
+    charlie = charlie || new faythe.Identity('test', 'charlie', null, 1)
     t.end()
   })
 
   test('fromMnemonic (' + env + ')', (t) => {
-    const alice2 = faythe.Identity.fromMnemonic(alice.mnemonic, 'secret')
+    const alice2 = faythe.Identity.fromMnemonic(alice.mnemonic, 'test', 'alice', 'secret')
     t.equal(alice.publicKey.toString('hex'), alice2.publicKey.toString('hex'), 'Should be the same')
+    t.equal(alice.privateKey.toString('hex'), alice2.secretKey.toString('hex'), 'Should be the same')
+
+    const bob2 = faythe.Identity.fromMnemonic(bob.mnemonic)
+    t.equal(bob.publicKey.toString('hex'), bob2.publicKey.toString('hex'), 'Should be the same')
+
+    const charlie2 = faythe.Identity.fromMnemonic(charlie.mnemonic, 'test', 'charlie', null, 1)
+    t.equal(charlie.publicKey.toString('hex'), charlie2.publicKey.toString('hex'), 'Should be the same')
     t.end()
   })
 
   test('fromSeed (' + env + ')', (t) => {
-    const alice3 = faythe.Identity.fromSeed(alice.contents[0].value)
+    const alice3 = faythe.Identity.fromSeed(alice.contents[0].value, 'test', 'alice')
     t.equal(alice.publicKey.toString('hex'), alice3.publicKey.toString('hex'), 'Should be the same')
+    t.equal(null, alice3.mnemonic, 'Should be null')
+    try {
+      const alice4 = faythe.Identity.fromMnemonic(alice3.mnemonic, null, 'test', 'alice')
+      t.equal(alice3.publicKey.toString('hex'), alice4.publicKey.toString('hex'), 'Should be the same')
+    } catch (error) {
+      t.equal(error.message, 'Mnemonic is required', 'Should throw if no mnemonic')
+    }
+
     t.end()
   })
 
   test('Invalid identity (' + env + ')', (t) => {
     try {
-      const _ = new faythe.Identity('secret', null, null, 0, '', alice.contents[0].value)
+      const _ = new faythe.Identity(null, null, 'secret', 0, null, alice.contents[0].value)
       _.lock()
     } catch (error) {
       t.equal(error.message, 'Invalid identity', 'Should throw')
     }
 
     try {
-      const _ = new faythe.Identity('secret2', null, null, 0, alice.mnemonic, alice.contents[0].value)
+      const _ = new faythe.Identity('test', 'alice', 'secret2', 0, alice.mnemonic, alice.contents[0].value)
       _.lock()
     } catch (error) {
       t.equal(error.message, 'Invalid identity', 'Should throw')
     }
 
     try {
-      const _ = new faythe.Identity('secret2', null, null, 0, alice.mnemonic, Buffer.alloc(32, 0))
+      const _ = new faythe.Identity('test', 'alice', 'secret', 0, alice.mnemonic, Buffer.alloc(32, 0))
       _.lock()
     } catch (error) {
       t.equal(error.message, 'Invalid identity', 'Should throw')
@@ -63,7 +79,10 @@ let alice, bob, charlie
   test('export (' + env + ')', (t) => {
     const exported = alice.export()
     const imported = alice.import(exported)
-    t.equal(Buffer.from(imported.find((c) => c.name === 'master' && c.type === 'Ed25519VerificationKey2018').publicKey).toString('hex'), alice.publicKey.toString('hex'), 'Should import and export')
+    const c = imported.find((c) => c.name === 'alice' && c.type === 'Ed25519VerificationKey2018')
+    t.equal(
+      alice.keyPairFor(faythe.decode(c.idspace), c.name).publicKey.toString('hex'),
+      alice.publicKey.toString('hex'), 'Should import and export')
     t.end()
   })
 
@@ -80,8 +99,9 @@ let alice, bob, charlie
   })
 
   test('keyPairFor (' + env + ')', (t) => {
-    const kpf = alice.keyPairFor('lock')
-    t.equal(kpf.publicKey.length, 32, 'Should allow after unlock')
+    const kpf = alice.keyPairFor('test')
+    t.equal(kpf.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
+
     try {
       alice.keyPairFor()
     } catch (error) {
@@ -354,18 +374,27 @@ let alice, bob, charlie
   })
 
   test('Namespace (' + env + ')', (t) => {
-    const Agent = new faythe.Identity('mysecret', 'lor', 'agent', 0, false)
-    const Member = new faythe.Identity('mysecret', Agent.namespace, 'javi', 0, false)
+    const Agent = new faythe.Identity('https://javisantos.com', 'default', 'mysecret')
+    const Member = new faythe.Identity(Agent.namespace, 'default', 'mysecret')
+
     t.deepEqual(faythe.encode(Member.namespace).toString(), faythe.encode(faythe.hashBatch([Agent.namespace, Member.publicKey])).toString(), 'Should be the same namespace')
+    t.assert(Member.isMember(Agent.namespace))
+    t.false(Member.isMember(''))
+
+    const kpfor1 = Member.keyPairFor(Agent.namespace)
+    const kpfor2 = Member.keyPairFor(faythe.hashBatch(['https://javisantos.com', Agent.publicKey]))
+
+    t.assert(Member.publicKey.equals(kpfor2.publicKey))
+    t.assert(kpfor1.publicKey.equals(kpfor2.publicKey))
+    t.assert(kpfor1.publicKey.equals(kpfor2.publicKey))
     t.end()
   })
 
-  test('NewHope (' + env + ')', (t) => {
-    const offer = alice.offer('bob')
-    const accept = bob.accept(offer, 'alice')
-    alice.finish(accept, 'bob')
-    t.equal(alice.contents.find((c) => c.name === 'bob').sharedKey.toString('hex'), bob.contents.find((c) => c.name === 'alice').sharedKey.toString('hex'), 'Should have same shared key')
-
+  test('Noise NN (' + env + ')', (t) => {
+    const { offer } = alice.offer('bob')
+    const accept = bob.accept('alice', offer)
+    alice.finish('bob', accept)
+    t.equal(alice.contents.find((c) => c.name === 'bob').sharedKeys.tx.toString('hex'), bob.contents.find((c) => c.name === 'alice').sharedKeys.rx.toString('hex'), 'Should have same shared key')
     t.end()
   })
 })
