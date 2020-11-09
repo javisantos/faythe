@@ -88,10 +88,11 @@ Verifies the signature from the given publicKey.
 
 ## Identity
 
-#### `new faythe.Identity(passphrase, idspace, name, [[rotation], [mnemonic], [seed]])`
+#### `new faythe.Identity([[idspace], [name], [passphrase], [rotation], [mnemonic], [seed]])`
 
 Faythe export this class to easy manage identity related features. WIP
 
+See test folder for Identity management examples
 
 ## License
 
