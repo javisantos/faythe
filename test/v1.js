@@ -373,15 +373,13 @@ let alice, bob, charlie
     t.end()
   })
 
-  test('Namespace (' + env + ')', (t) => {
+  test('ID (' + env + ')', (t) => {
     const Agent = new faythe.Identity('https://javisantos.com', 'default', 'mysecret')
-    const Member = new faythe.Identity(Agent.namespace, 'default', 'mysecret')
+    const Member = new faythe.Identity(Agent.id, 'default', 'mysecret')
 
-    t.deepEqual(faythe.encode(Member.namespace).toString(), faythe.encode(faythe.hashBatch([Agent.namespace, Member.publicKey])).toString(), 'Should be the same namespace')
-    t.assert(Member.isMember(Agent.namespace))
-    t.false(Member.isMember(''))
+    t.deepEqual(faythe.encode(Member.id).toString(), faythe.encode(faythe.hashBatch([Agent.id, Member.publicKey])).toString(), 'Should be the same id')
 
-    const kpfor1 = Member.keyPairFor(Agent.namespace)
+    const kpfor1 = Member.keyPairFor(Agent.id)
     const kpfor2 = Member.keyPairFor(faythe.hashBatch(['https://javisantos.com', Agent.publicKey]))
 
     t.assert(Member.publicKey.equals(kpfor2.publicKey))

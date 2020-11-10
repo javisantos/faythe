@@ -97,10 +97,6 @@ export class Identity extends EventEmitter {
         value: this.mnemonic
       })
     }
-    this.contents.push({
-      type: 'rotation',
-      value: this.rotation
-    })
 
     this.idspace = idspace ? ensureBuffer(idspace) : ensureBuffer('idspace')
 
@@ -110,9 +106,18 @@ export class Identity extends EventEmitter {
 
     const keyPair = this.keyPairFor(this.idspace, name, this[MASTERKEY], { description: `Master KeyPair for ${encode(this.idspace)}` })
 
-    this.namespace = hashBatch([this.idspace, keyPair.publicKey])
+    this.id = hashBatch([this.idspace, keyPair.publicKey])
 
-    this[ROTATIONKEY] = hash(this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), { tags: ['rotation'], correlation: [encode(this.namespace)], description: `Rotation KeyPair for ${encode(this.idspace)}` }).publicKey)
+    const rt = this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), { tags: ['rotation'], correlation: [encode(this.id)], description: `Rotation KeyPair for ${encode(this.idspace)}` })
+    this[ROTATIONKEY] = hash(rt.publicKey)
+
+    this.contents.push({
+      type: 'rotation',
+      value: this.rotation,
+      hash: this[ROTATIONKEY],
+      publicKey: rt.publicKey,
+      privateKey: rt.privateKey
+    })
 
     this.verPublicKey = Buffer.from(keyPair.publicKey)
     this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
@@ -143,12 +148,12 @@ export class Identity extends EventEmitter {
         if (exist) return exist
       }
       const keyPair = generateKeyPair(derive(key || this[MASTERKEY], space, name || this.name))
-      const namespace = hashBatch([space, keyPair.publicKey])
+      const id = hashBatch([space, keyPair.publicKey])
       const kp = {
+        id: encode(ensureBuffer(id)).toString(),
         type: VERIFICATIONKEYTYPE,
         idspace: encode(ensureBuffer(space)),
         name: n,
-        namespace: encode(ensureBuffer(namespace)).toString(),
         image: info.image || null,
         description: info.description ? info.description : null,
         tags,
@@ -164,14 +169,6 @@ export class Identity extends EventEmitter {
         secretKey: keyPair.privateKey
       }
     } else return null
-  }
-
-  isMember (namespace) {
-    if (this.idspace.toString('hex') === namespace.toString('hex')) {
-      return true
-    } else {
-      return false
-    }
   }
 
   export () {
