@@ -1,6 +1,6 @@
 {
   "name": "faythe",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "An easy crypto library to send messages using key encapsulation. A courier for Alice, Bob and friends.",
   "author": "Javi Santos <mail@javisantos.com>",
   "license": "MIT",
