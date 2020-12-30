@@ -9,11 +9,6 @@ let alice, bob, charlie
 ['node'].forEach((env) => {
   test('Ready (' + env + ')', async (t) => {
     t.assert(faythe.VERSION === '1.0', 'Should be v1')
-    // await faythe.ready()
-    // faythe.ready(() => {
-    //   t.assert(true, 'Should be ready')
-    //   t.end()
-    // })
   })
 
   test('Init (' + env + ')', async (t) => {
@@ -38,7 +33,7 @@ let alice, bob, charlie
   })
 
   test('fromSeed (' + env + ')', (t) => {
-    const alice3 = faythe.Identity.fromSeed(alice.contents[0].value, 'test', 'alice')
+    const alice3 = faythe.Identity.fromSeed(alice.seed, 'test', 'alice')
     t.equal(alice.publicKey.toString('hex'), alice3.publicKey.toString('hex'), 'Should be the same')
     t.equal(null, alice3.mnemonic, 'Should be null')
     try {
@@ -53,14 +48,14 @@ let alice, bob, charlie
 
   test('Invalid identity (' + env + ')', (t) => {
     try {
-      const _ = new faythe.Identity(null, null, 'secret', 0, null, alice.contents[0].value)
+      const _ = new faythe.Identity(null, null, 'secret', 0, null, alice.seed)
       _.lock()
     } catch (error) {
       t.equal(error.message, 'Invalid identity', 'Should throw')
     }
 
     try {
-      const _ = new faythe.Identity('test', 'alice', 'secret2', 0, alice.mnemonic, alice.contents[0].value)
+      const _ = new faythe.Identity('test', 'alice', 'secret2', 0, alice.mnemonic, alice.seed)
       _.lock()
     } catch (error) {
       t.equal(error.message, 'Invalid identity', 'Should throw')
@@ -95,13 +90,15 @@ let alice, bob, charlie
     const unlockedkp = alice.keyPairFor('unlock')
     t.equal(unlockedkp.publicKey.length, 32, 'Should allow after unlock')
     t.equal(alice.publicKey.toString('hex'), prevPk, 'Should be the same')
+    console.log(alice.encryptedContents.length)
     t.end()
   })
 
   test('keyPairFor (' + env + ')', (t) => {
-    const kpf = alice.keyPairFor('test')
+    const kpf = alice.keyPairFor('test', 'alice', 0, { tags: ['test'], description: 'Keypair for idspace alice/test' })
     t.equal(kpf.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
-
+    const tags = alice.keyPairFor('personal', null, 0, { tags: ['personal'], description: 'Keypair for idspace alice/personal' })
+    t.deepEqual(tags.tags, ['keyPair', 'verification', 'personal'], 'Should add tags')
     try {
       alice.keyPairFor()
     } catch (error) {
@@ -125,6 +122,13 @@ let alice, bob, charlie
     t.end()
   })
 
+  test('sha256 (' + env + ')', (t) => {
+    const hash = faythe.sha256('Hello world')
+    t.equal(hash.length, faythe.HASHBYTES, `Should be ${faythe.HASHBYTES} bytes long`)
+    t.equal(hash.toString('hex'), '64ec88ca00b268e5ba1a35678a1b5316d212f4f366b2477232534a8aeca37f3c')
+    t.end()
+  })
+
   test('hashBatch (' + env + ')', (t) => {
     const hash = faythe.hashBatch(['Hello world', 'Hello world'])
     t.equal(hash.length, faythe.HASHBYTES, `Should be ${faythe.HASHBYTES} bytes long`)
@@ -145,6 +149,17 @@ let alice, bob, charlie
     const sharedKey2 = faythe.precomputeSharedKey(bob.privateKey, alice.publicKey)
     t.equal(sharedKey.length, 32, 'Shoud be 32 bytes long')
     t.equal(sharedKey.toString('hex'), sharedKey2.toString('hex'), 'Shoud compute same key')
+    t.end()
+  })
+
+  test('toCurve25519 (' + env + ')', (t) => {
+    const toCurve25519Kp = faythe.generateKeyPair(Buffer.alloc(32, 1))
+    const curvePK = faythe.toCurve25519(toCurve25519Kp.publicKey, 'public')
+    const curveSK = faythe.toCurve25519(toCurve25519Kp.privateKey, 'private')
+    t.equal(toCurve25519Kp.publicKey.toString('hex'), '8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c')
+    t.equal(curvePK.toString('hex'), '1b1b58dd50ea14b60da17b790cd02754d970c9bab864ebb3c0f3016fe51d3f57')
+    t.equal(curveSK.toString('hex'), '58e86efb75fa4e2c410f46e16de9f6acae1a1703528651b69bc176c088bef36e')
+
     t.end()
   })
 
@@ -373,26 +388,12 @@ let alice, bob, charlie
     t.end()
   })
 
-  test('ID (' + env + ')', (t) => {
-    const Agent = new faythe.Identity('https://javisantos.com', 'default', 'mysecret')
-    const Member = new faythe.Identity(Agent.id, 'default', 'mysecret')
-
-    t.deepEqual(faythe.encode(Member.id).toString(), faythe.encode(faythe.hashBatch([Agent.id, Member.publicKey])).toString(), 'Should be the same id')
-
-    const kpfor1 = Member.keyPairFor(Agent.id)
-    const kpfor2 = Member.keyPairFor(faythe.hashBatch(['https://javisantos.com', Agent.publicKey]))
-
-    t.assert(Member.publicKey.equals(kpfor2.publicKey))
-    t.assert(kpfor1.publicKey.equals(kpfor2.publicKey))
-    t.assert(kpfor1.publicKey.equals(kpfor2.publicKey))
-    t.end()
-  })
-
   test('Noise NN (' + env + ')', (t) => {
     const { offer } = alice.offer('bob')
     const accept = bob.accept('alice', offer)
     alice.finish('bob', accept)
     t.equal(alice.contents.find((c) => c.name === 'bob').sharedKeys.tx.toString('hex'), bob.contents.find((c) => c.name === 'alice').sharedKeys.rx.toString('hex'), 'Should have same shared key')
+
     t.end()
   })
 })

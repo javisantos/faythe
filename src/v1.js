@@ -1,12 +1,12 @@
 import sodium from 'sodium-universal'
-import cbor from 'cbor'
+import cbor from 'borc'
 import { EventEmitter } from 'events'
-import { Buffer } from 'buffer'
+import { Buffer } from '../node_modules/safe-buffer'
 import multibase from 'multibase'
+import multicodec from 'multicodec'
 import canonicalize from 'canonicalize'
 import { generateMnemonic, mnemonicToSeedSync } from 'bip39'
 import noise from 'noise-protocol'
-
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1.0'
 export const RANDOMBYTES = 32
@@ -25,21 +25,21 @@ export const VERIFICATIONKEYTYPE = 'Ed25519VerificationKey2018'
 export const CIPHERALG = 'chacha20poly1305_ietf'
 export const HASHALG = 'blake2b-256'
 export const KDF = 'PBKDF2'
-export const MNEMONIC = 'BIP39'
 export const HANDSHAKE = 'Noise_NN_25519_ChaChaPoly_BLAKE2b'
 
-// let libsodium
 const MASTERKEY = Symbol('MASTERKEY')
 const ROTATIONKEY = Symbol('ROTATIONKEY')
 const SEED = Symbol('SEED')
+const MNEMONIC = Symbol('MNEMONIC')
+const PASSPHRASE = Symbol('PASSPHRASE')
 
-const encode = (buffer, encoder = ENCODER) => new TextDecoder('utf-8').decode(multibase.encode(encoder, buffer))
+const encode = (buffer, encoder = ENCODER) => Buffer.from(multibase.encode(encoder, buffer)).toString('utf-8')
 const decode = (bufOrString) => Buffer.from(multibase.decode(bufOrString))
 
 const serialize = cbor.encode
-const deserialize = cbor.decodeFirstSync
+const deserialize = cbor.decode
 
-export { canonicalize, encode, decode, serialize, deserialize, generateMnemonic, noise }
+export { multicodec, multibase, canonicalize, encode, decode, serialize, deserialize, generateMnemonic, mnemonicToSeedSync, noise }
 
 export function randomBytes (bytes) {
   const b = Buffer.alloc(bytes)
@@ -76,109 +76,91 @@ export class Identity extends EventEmitter {
     this.rotation = rotation || 0
 
     if (mnemonic) {
-      this.mnemonic = mnemonic
+      this[MNEMONIC] = mnemonic
     } else {
-      this.mnemonic = seed ? null : generateMnemonic(256)
+      this[MNEMONIC] = seed ? null : generateMnemonic(256, randomBytes)
     }
 
-    this[SEED] = seed ? ensureBuffer(seed) : Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES))
+    this[PASSPHRASE] = passphrase || ''
 
-    if (passphrase && seed && this[SEED].toString('hex') !== mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES).toString('hex')) {
+    this.contents.push({
+      type: 'mnemonic',
+      value: this[MNEMONIC]
+    })
+
+    this[SEED] = seed || Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
+
+    if (passphrase && seed && this[SEED].toString('hex') !== mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES).toString('hex')) {
       throw new Error('Invalid identity')
     }
 
-    this.contents.push({
-      type: 'seed',
-      value: this[SEED]
-    })
-    if (this.mnemonic) {
-      this.contents.push({
-        type: 'mnemonic',
-        value: this.mnemonic
-      })
-    }
+    this.idspace = idspace
+      ? multicodec.getCodec(idspace) === 'path' ? ensureBuffer(idspace) : Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer(idspace))))
+      : Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer('idspace'))))
 
-    this.idspace = idspace ? ensureBuffer(idspace) : ensureBuffer('idspace')
+    this[MASTERKEY] = derive(this[SEED], this.idspace, 'master')
 
-    this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_faythe_') // 32 bytes
+    this.masterKeyPair = this.keyPairFor(this.idspace, 'master', this.rotation, { description: `Master KeyPair for ${encode(this.idspace)}` })
+    this.masterId = hashBatch([this.idspace, this.masterKeyPair.publicKey])
 
-    this.name = name || 'default'
+    this.name = name || 'master'
 
-    const keyPair = this.keyPairFor(this.idspace, name, this[MASTERKEY], { description: `Master KeyPair for ${encode(this.idspace)}` })
+    this.keyPair = this.name === 'master'
+      ? this.masterKeyPair
+      : this.keyPairFor(this.idspace, this.name, this.rotation)
 
-    this.id = hashBatch([this.idspace, keyPair.publicKey])
+    this[ROTATIONKEY] = hash(generateKeyPair(deriveFromKey(this[SEED], this.rotation + 1, '_faythe_')).publicKey)
 
-    const rt = this.keyPairFor(this.idspace, 'prerotated', deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), { tags: ['rotation'], correlation: [encode(this.id)], description: `Rotation KeyPair for ${encode(this.idspace)}` })
-    this[ROTATIONKEY] = hash(rt.publicKey)
-
-    this.contents.push({
-      type: 'rotation',
-      value: this.rotation,
-      hash: this[ROTATIONKEY],
-      publicKey: rt.publicKey,
-      privateKey: rt.privateKey
-    })
-
-    this.verPublicKey = Buffer.from(keyPair.publicKey)
-    this.verPrivateKey = Buffer.from(keyPair.privateKey) // 64 bytes
+    this.verPublicKey = Buffer.from(this.keyPair.publicKey)
+    this.verPrivateKey = Buffer.from(this.keyPair.privateKey)
 
     this.on('change', () => this.export())
 
     this.emit('unlocked')
+
     this.emit('change')
 
     this.setMaxListeners(0)
   }
 
-  keyPairFor (space, name, key, info = {}) {
+  keyPairFor (space, name, rotation = 0, info = {}) {
     if (!space) throw new Error('Idspace is required')
-    const correlation = info.correlation ? [encode(ensureBuffer(space))].concat(info.correlation) : [encode(ensureBuffer(space))]
-    const tags = info.tags ? ['keyPair', 'verification'].concat(info.tags) : ['keyPair', 'verification']
-    const n = name || this.name
+    space = multicodec.getCodec(space) === 'path' ? ensureBuffer(space) : Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer(space))))
+    name = name || this.name
     if (!this.locked) {
       let exist = false
-      if (!key || key.equals(this[MASTERKEY])) {
-        exist = this.contents.find(c => {
-          if (c.idspace === encode(ensureBuffer(space)) && c.name === n) {
-            return true
-          } else {
-            return false
-          }
-        })
-        if (exist) return exist
-      }
-      const keyPair = generateKeyPair(derive(key || this[MASTERKEY], space, name || this.name))
-      const id = hashBatch([space, keyPair.publicKey])
+
+      exist = this.contents.find(c => {
+        if (c.idspace === encode(ensureBuffer(space)) && c.name === name) {
+          return true
+        } else {
+          return false
+        }
+      })
+      if (exist) return exist
+      const tags = info.tags ? ['keyPair', 'verification'].concat(info.tags) : ['keyPair', 'verification']
+      const keyPair = generateKeyPair(deriveFromKey(derive(this[MASTERKEY], space, name), rotation, '_faythe_'))
+      const description = info.description || `KeyPair for ${encode(ensureBuffer(space))}  with name ${name}`
+
+      const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
-        id: encode(ensureBuffer(id)).toString(),
+        id,
         type: VERIFICATIONKEYTYPE,
-        idspace: encode(ensureBuffer(space)),
-        name: n,
-        image: info.image || null,
-        description: info.description ? info.description : null,
+        idspace: encode(this.idspace),
+        childspace: encode(space) === encode(this.idspace) ? null : encode(ensureBuffer(space)),
+        name,
+        description,
         tags,
-        correlation,
         publicKey: keyPair.publicKey,
         privateKey: keyPair.privateKey
       }
       this.contents.push(kp)
       this.emit('change')
       return {
-        publicKey: keyPair.publicKey,
-        privateKey: keyPair.privateKey,
+        ...kp,
         secretKey: keyPair.privateKey
       }
     } else return null
-  }
-
-  export () {
-    this.encryptedContents = secretEncrypt(this[SEED], Buffer.from(serialize(this.contents)))
-    return this.encryptedContents
-  }
-
-  import (data) {
-    this.contents = deserialize(secretDecrypt(this[SEED], data))
-    return this.contents
   }
 
   offer (id) {
@@ -255,9 +237,21 @@ export class Identity extends EventEmitter {
     return this._locked
   }
 
+  get seed () {
+    return this[SEED]
+  }
+
+  get mnemonic () {
+    return this[MNEMONIC]
+  }
+
   lock () {
     this.export()
     this.contents = []
+    this.keyPair = null
+    this.masterKeyPair = null
+    this[MNEMONIC] = null
+    this[PASSPHRASE] = null
     sodium.sodium_memzero(this[MASTERKEY])
     sodium.sodium_memzero(this[SEED])
     sodium.sodium_memzero(this.verPublicKey)
@@ -266,9 +260,20 @@ export class Identity extends EventEmitter {
     this.emit('locked')
   }
 
+  export () {
+    this.encryptedContents = secretEncrypt(hash(this[PASSPHRASE]), Buffer.from(serialize(this.contents)))
+    return this.encryptedContents
+  }
+
+  import (encrypted) {
+    this.contents = deserialize(secretDecrypt(hash(this[PASSPHRASE]), encrypted))
+    return this.contents
+  }
+
   unlock (passphrase) {
-    const unlockedIdentity = Identity.fromSeed(Buffer.from(mnemonicToSeedSync(this.mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)), this.idspace, this.name)
-    unlockedIdentity.contents = unlockedIdentity.import(this.encryptedContents)
+    const contents = deserialize(secretDecrypt(hash(passphrase), this.encryptedContents))
+    const unlockedIdentity = Identity.fromMnemonic(contents.find(c => c.type === 'mnemonic').value, this.idspace, this.name, passphrase, this.rotation)
+    unlockedIdentity.contents = contents
     this.emit('unlocked')
     return unlockedIdentity
   }
@@ -284,13 +289,13 @@ export class Identity extends EventEmitter {
     }
   }
 
-  static fromMnemonic (mnemonic, idspace, name, passphrase, rotation, seed) {
+  static fromMnemonic (mnemonic, idspace, name, passphrase, rotation) {
     if (!mnemonic) throw new Error('Mnemonic is required')
-    return new Identity(idspace, name, passphrase, rotation, mnemonic, seed)
+    return new Identity(idspace, name, passphrase, rotation, mnemonic, Buffer.from(mnemonicToSeedSync(mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)))
   }
 
-  static fromSeed (seed, idspace, name, passphrase, rotation, mnemonic) {
-    return new Identity(idspace, name, passphrase, rotation, mnemonic, ensureBuffer(seed))
+  static fromSeed (seed, idspace, name, passphrase, rotation) {
+    return new Identity(idspace, name, passphrase, rotation, null, ensureBuffer(seed))
   }
 }
 
@@ -308,6 +313,12 @@ export function hash (data, bytes, key) {
   const b = Buffer.alloc(bytes || HASHBYTES)
   if (key) sodium.crypto_generichash(b, ensureBuffer(data), key)
   else sodium.crypto_generichash(b, ensureBuffer(data))
+  return b
+}
+
+export function sha256 (data) {
+  const b = Buffer.alloc(HASHBYTES)
+  sodium.crypto_hash_sha256(b, ensureBuffer(data))
   return b
 }
 
@@ -334,6 +345,18 @@ export function deriveFromKey (key, int, ctx) {
   const derived = Buffer.alloc(RANDOMBYTES)
   sodium.crypto_kdf_derive_from_key(derived, int, context, key)
   return derived
+}
+
+export function toCurve25519 (key, type) {
+  let X25519
+  if (type === 'public') {
+    X25519 = Buffer.alloc(sodium.crypto_kx_PUBLICKEYBYTES)
+    sodium.crypto_sign_ed25519_pk_to_curve25519(X25519, key)
+  } else {
+    X25519 = Buffer.alloc(sodium.crypto_kx_SECRETKEYBYTES)
+    sodium.crypto_sign_ed25519_sk_to_curve25519(X25519, key)
+  }
+  return X25519
 }
 
 export function precomputeSharedKey (myPrivateKey, theirPublicKey, initiator) {
@@ -504,7 +527,7 @@ export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubi
   }
 
   if (nonRepubiable) {
-    const signature = this.sign(senderKeys, message)
+    const signature = this.sign(senderKeys, message, nonce)
     result.signature = encode(signature)
   }
 
@@ -547,7 +570,7 @@ export function unpackMessage (packed, recipientKeys) {
 
         if (packed.signature) {
           try {
-            verified = this.verify(senderPublicKey, decrypted, decode(packed.signature))
+            verified = this.verify(senderPublicKey, decrypted, decode(packed.signature), decode(packed.iv))
           } catch (error) {
             decrypted = false
           }

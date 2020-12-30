@@ -6,6 +6,10 @@ import nodePolyfills from 'rollup-plugin-node-polyfills'
 import json from '@rollup/plugin-json'
 import globals from 'rollup-plugin-node-globals'
 import { terser } from 'rollup-plugin-terser'
+import alias from 'rollup-plugin-alias'
+import { compress } from 'brotli'
+import gzipPlugin from 'rollup-plugin-gzip'
+import path from 'path'
 
 export default [
   {
@@ -16,18 +20,41 @@ export default [
         format: 'esm'
       }],
     plugins: [
-
+      alias({
+        entries: [
+          { find: './_wordlists', replacement: path.join(__dirname, 'bip39-english.js') }
+        ]
+      }),
       json(),
       commonjs(),
 
       resolve({
-        preferBuiltins: true,
+        preferBuiltins: false,
         browser: true
       }),
       globals(),
       nodePolyfills(),
-      // replace({ 'process.browser': !!process.env.BROWSER }),
-      terser()
+      terser({
+        output: {
+          comments: false
+        },
+        compress: {
+          passes: 2,
+          ecma: 6,
+          toplevel: true,
+          keep_infinity: true,
+          module: true
+        },
+        mangle: {
+          properties: {
+            regex: /^_/
+          }
+        }
+      }),
+      gzipPlugin({
+        customCompression: content => compress(Buffer.from(content)),
+        fileName: () => 'faythe.br'
+      })
     ]
   }
 ]
