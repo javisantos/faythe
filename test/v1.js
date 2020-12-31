@@ -15,7 +15,7 @@ let alice, bob, charlie
     alice = alice || new faythe.Identity('test', 'alice', 'secret')
 
     bob = bob || new faythe.Identity()
-    charlie = charlie || new faythe.Identity('test', 'charlie', null, 1)
+    charlie = charlie || new faythe.Identity('test', 'charlie', null, null, 1)
     t.end()
   })
 
@@ -32,42 +32,23 @@ let alice, bob, charlie
     t.end()
   })
 
-  test('fromSeed (' + env + ')', (t) => {
-    const alice3 = faythe.Identity.fromSeed(alice.seed, 'test', 'alice')
+  test('fromEntropy (' + env + ')', (t) => {
+    const alice3 = faythe.Identity.fromEntropy(alice.entropy, 'test', 'alice', 'secret')
     t.equal(alice.publicKey.toString('hex'), alice3.publicKey.toString('hex'), 'Should be the same')
-    t.equal(null, alice3.mnemonic, 'Should be null')
+    const alice4 = faythe.Identity.fromMnemonic(alice3.mnemonic, 'test', 'alice', 'secret')
+    t.equal(alice3.publicKey.toString('hex'), alice4.publicKey.toString('hex'), 'Should be the same')
     try {
-      const alice4 = faythe.Identity.fromMnemonic(alice3.mnemonic, null, 'test', 'alice')
-      t.equal(alice3.publicKey.toString('hex'), alice4.publicKey.toString('hex'), 'Should be the same')
-    } catch (error) {
-      t.equal(error.message, 'Mnemonic is required', 'Should throw if no mnemonic')
-    }
-
-    t.end()
-  })
-
-  test('Invalid identity (' + env + ')', (t) => {
-    try {
-      const _ = new faythe.Identity(null, null, 'secret', 0, null, alice.seed)
+      const _ = faythe.Identity.fromMnemonic(null)
       _.lock()
     } catch (error) {
-      t.equal(error.message, 'Invalid identity', 'Should throw')
+      t.equal(error.message, 'Mnemonic is required', 'Should throw')
     }
-
     try {
-      const _ = new faythe.Identity('test', 'alice', 'secret2', 0, alice.mnemonic, alice.seed)
+      const _ = faythe.Identity.fromEntropy(Buffer.alloc(16))
       _.lock()
     } catch (error) {
-      t.equal(error.message, 'Invalid identity', 'Should throw')
+      t.equal(error.message, 'Invalid entropy', 'Should throw')
     }
-
-    try {
-      const _ = new faythe.Identity('test', 'alice', 'secret', 0, alice.mnemonic, Buffer.alloc(32, 0))
-      _.lock()
-    } catch (error) {
-      t.equal(error.message, 'Invalid identity', 'Should throw')
-    }
-
     t.end()
   })
 

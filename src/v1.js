@@ -5,15 +5,16 @@ import { Buffer } from '../node_modules/safe-buffer'
 import multibase from 'multibase'
 import multicodec from 'multicodec'
 import canonicalize from 'canonicalize'
-import { generateMnemonic, mnemonicToSeedSync } from 'bip39'
+import { generateMnemonic, mnemonicToSeedSync, entropyToMnemonic, mnemonicToEntropy } from 'bip39'
 import noise from 'noise-protocol'
+
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1.0'
 export const RANDOMBYTES = 32
 export const NONCEBYTES = 12
 export const HASHBYTES = 32
 export const PUBLICKEYBYTES = 32
-export const PRIVATEKEYBYTES = 64 // Concatenated publicKey
+export const PRIVATEKEYBYTES = 64
 export const SHAREDKEYBYTES = 32
 export const SALTBYTES = 12
 export const MIN_SEEDBYTES = 16
@@ -30,6 +31,7 @@ export const HANDSHAKE = 'Noise_NN_25519_ChaChaPoly_BLAKE2b'
 const MASTERKEY = Symbol('MASTERKEY')
 const ROTATIONKEY = Symbol('ROTATIONKEY')
 const SEED = Symbol('SEED')
+const ENTROPY = Symbol('ENTROPY')
 const MNEMONIC = Symbol('MNEMONIC')
 const PASSPHRASE = Symbol('PASSPHRASE')
 
@@ -51,6 +53,15 @@ export function ensureBuffer (data) {
   return Buffer.isBuffer(data) ? data : Buffer.from(data)
 }
 
+export function isIdspace (buffer) {
+  if (!Buffer.isBuffer(buffer)) return false
+  return multicodec.getCodec(buffer) === 'path' && buffer.length === 33
+}
+
+export function toIdSpace (buffer) {
+  return Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer(buffer))))
+}
+
 const authEncryptErrorHandler = function (args) {
   // theirPublicKeyObject, myPrivateKeyObject, data, nonce
   if (!args[0] || args[0].length !== PUBLICKEYBYTES) throw new TypeError('First argument must be a publicKey')
@@ -68,35 +79,27 @@ const secretEncryptErrorHandler = function (args) {
 }
 
 export class Identity extends EventEmitter {
-  constructor (idspace, name, passphrase, rotation, mnemonic, seed) {
+  constructor (idspace, name, passphrase, mnemonic, rotation) {
     super()
     this.contents = []
     this.encryptedContents = null
     this._locked = false
     this.rotation = rotation || 0
 
-    if (mnemonic) {
-      this[MNEMONIC] = mnemonic
-    } else {
-      this[MNEMONIC] = seed ? null : generateMnemonic(256, randomBytes)
-    }
-
     this[PASSPHRASE] = passphrase || ''
+
+    this[MNEMONIC] = mnemonic || generateMnemonic(256, randomBytes)
+    this[ENTROPY] = Buffer.from(mnemonicToEntropy(this[MNEMONIC]), 'hex')
+    this[SEED] = Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
 
     this.contents.push({
       type: 'mnemonic',
       value: this[MNEMONIC]
     })
 
-    this[SEED] = seed || Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
-
-    if (passphrase && seed && this[SEED].toString('hex') !== mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES).toString('hex')) {
-      throw new Error('Invalid identity')
-    }
-
     this.idspace = idspace
-      ? multicodec.getCodec(idspace) === 'path' ? ensureBuffer(idspace) : Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer(idspace))))
-      : Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer('idspace'))))
+      ? isIdspace(idspace) ? idspace : toIdSpace(idspace)
+      : Buffer.from(multicodec.addPrefix('path', hash(Buffer.alloc(0))))
 
     this[MASTERKEY] = derive(this[SEED], this.idspace, 'master')
 
@@ -125,7 +128,7 @@ export class Identity extends EventEmitter {
 
   keyPairFor (space, name, rotation = 0, info = {}) {
     if (!space) throw new Error('Idspace is required')
-    space = multicodec.getCodec(space) === 'path' ? ensureBuffer(space) : Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer(space))))
+    space = isIdspace(space) ? space : toIdSpace(space)
     name = name || this.name
     if (!this.locked) {
       let exist = false
@@ -140,14 +143,14 @@ export class Identity extends EventEmitter {
       if (exist) return exist
       const tags = info.tags ? ['keyPair', 'verification'].concat(info.tags) : ['keyPair', 'verification']
       const keyPair = generateKeyPair(deriveFromKey(derive(this[MASTERKEY], space, name), rotation, '_faythe_'))
-      const description = info.description || `KeyPair for ${encode(ensureBuffer(space))}  with name ${name}`
+      const description = info.description || `KeyPair for ${encode(space)}  with name ${name}`
 
       const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
         id,
         type: VERIFICATIONKEYTYPE,
         idspace: encode(this.idspace),
-        childspace: encode(space) === encode(this.idspace) ? null : encode(ensureBuffer(space)),
+        childspace: encode(space) === encode(this.idspace) ? null : space,
         name,
         description,
         tags,
@@ -237,8 +240,8 @@ export class Identity extends EventEmitter {
     return this._locked
   }
 
-  get seed () {
-    return this[SEED]
+  get entropy () {
+    return this[ENTROPY]
   }
 
   get mnemonic () {
@@ -254,6 +257,7 @@ export class Identity extends EventEmitter {
     this[PASSPHRASE] = null
     sodium.sodium_memzero(this[MASTERKEY])
     sodium.sodium_memzero(this[SEED])
+    sodium.sodium_memzero(this[ENTROPY])
     sodium.sodium_memzero(this.verPublicKey)
     sodium.sodium_memzero(this.verPrivateKey)
     this._locked = true
@@ -291,11 +295,12 @@ export class Identity extends EventEmitter {
 
   static fromMnemonic (mnemonic, idspace, name, passphrase, rotation) {
     if (!mnemonic) throw new Error('Mnemonic is required')
-    return new Identity(idspace, name, passphrase, rotation, mnemonic, Buffer.from(mnemonicToSeedSync(mnemonic, passphrase).slice(0, sodium.crypto_kdf_KEYBYTES)))
+    return new Identity(idspace, name, passphrase, mnemonic, rotation)
   }
 
-  static fromSeed (seed, idspace, name, passphrase, rotation) {
-    return new Identity(idspace, name, passphrase, rotation, null, ensureBuffer(seed))
+  static fromEntropy (entropy, idspace, name, passphrase, rotation) {
+    if (!entropy || !Buffer.isBuffer(entropy) || entropy.length !== RANDOMBYTES) throw new Error('Invalid entropy')
+    return new Identity(idspace, name, passphrase, entropyToMnemonic(entropy.toString('hex')), rotation)
   }
 }
 
