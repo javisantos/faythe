@@ -120,9 +120,9 @@ let alice, bob, charlie
   })
 
   test('hashBatch (' + env + ')', (t) => {
-    const hash = faythe.hashBatch(['Hello world', 'Hello world'])
+    const hash = faythe.hash(['Hello world', 'Hello world'])
     t.equal(hash.length, faythe.HASHBYTES, `Should be ${faythe.HASHBYTES} bytes long`)
-    const hash2 = faythe.hashBatch(['Hello world', 'Hello world'], 32, hash)
+    const hash2 = faythe.hash(['Hello world', 'Hello world'], 32, hash)
     t.equal(hash2.length, faythe.HASHBYTES, `Should be ${faythe.HASHBYTES} bytes long`)
     t.end()
   })

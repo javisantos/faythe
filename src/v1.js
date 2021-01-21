@@ -93,7 +93,7 @@ export class Identity extends EventEmitter {
     this.name = name || 'default'
 
     this.contents.push({
-      type: 'info',
+      type: 'metadata',
       idspace: this.idspace,
       name: this.name
     })
@@ -125,19 +125,12 @@ export class Identity extends EventEmitter {
     space = ensureBuffer(space)
 
     if (!this.locked) {
-      let exist = false
-
-      exist = this.contents.find(c => {
-        if (c.idspace === encode(space) && c.name === name) {
-          return true
-        } else {
-          return false
-        }
-      })
+      const exist = this.contents.find(c => c.idspace === encode(space) && c.name === name)
       if (exist) return exist
-      const tags = info.tags ? ['keyPair', 'verification'].concat(info.tags) : ['keyPair', 'verification']
+
+      const tags = ['keyPair', 'verification'].concat(info.tags || [])
       const keyPair = generateKeyPair(derive(this.masterKey, space, name))
-      const description = info.description || `KeyPair for ${encode(space)}  with name ${name}`
+      const description = info.description || `KeyPair for ${encode(space)} with name ${name}`
 
       const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
@@ -302,9 +295,9 @@ export class Identity extends EventEmitter {
 
   static fromEncrypted (encryptedContents, passphrase) {
     const decrypted = deserialize(secretDecrypt(hash(passphrase), encryptedContents))
-    const info = decrypted.find(c => c.type === 'info')
+    const metadata = decrypted.find(c => c.type === 'metadata')
     const mnemonic = decrypted.find(c => c.type === 'mnemonic')
-    const identity = Identity.fromMnemonic(mnemonic.value, info.idspace, info.name, passphrase)
+    const identity = Identity.fromMnemonic(mnemonic.value, metadata.idspace, metadata.name, passphrase)
     identity.contents = decrypted
     identity.emit('change')
     return identity
@@ -322,6 +315,7 @@ export function generateKeyPair (seed = randomBytes(RANDOMBYTES)) {
 }
 
 export function hash (data, bytes, key) {
+  if (Array.isArray(data)) data = data.map(d => ensureBuffer(d))
   const b = Buffer.alloc(bytes || HASHBYTES)
   if (key) sodium.crypto_generichash(b, ensureBuffer(data), key)
   else sodium.crypto_generichash(b, ensureBuffer(data))
@@ -331,14 +325,6 @@ export function hash (data, bytes, key) {
 export function sha256 (data) {
   const b = Buffer.alloc(HASHBYTES)
   sodium.crypto_hash_sha256(b, ensureBuffer(data))
-  return b
-}
-
-export function hashBatch (data, bytes, key) {
-  const b = Buffer.alloc(bytes || HASHBYTES)
-  data = data.map(d => ensureBuffer(d))
-  if (key) sodium.crypto_generichash_batch(b, data, key)
-  else sodium.crypto_generichash_batch(b, data)
   return b
 }
 
