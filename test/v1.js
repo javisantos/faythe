@@ -52,6 +52,13 @@ let alice, bob, charlie
     t.end()
   })
 
+  test('fromEncrypted (' + env + ')', (t) => {
+    const encryptedContent = alice.export()
+    const alice2 = faythe.Identity.fromEncrypted(encryptedContent, 'secret', 'test', 'alice')
+    t.equal(alice2.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
+    t.end()
+  })
+
   test('export (' + env + ')', (t) => {
     const exported = alice.export()
     const imported = alice.import(exported)

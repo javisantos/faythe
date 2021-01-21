@@ -86,16 +86,21 @@ export class Identity extends EventEmitter {
     this[ENTROPY] = Buffer.from(mnemonicToEntropy(this[MNEMONIC]), 'hex')
     this[SEED] = Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
 
-    this.contents.push({
-      type: 'mnemonic',
-      value: this[MNEMONIC]
-    })
-
     this.idspace = idspace ? ensureBuffer(idspace) : Buffer.from(multicodec.addPrefix('path', hash(Buffer.from('idspace'))))
 
     this[MASTERKEY] = deriveFromKey(derive(this[SEED], this.idspace, 'master'), this.rotation, '_faythe_')
 
     this.name = name || 'default'
+
+    this.contents.push({
+      type: 'info',
+      idspace: this.idspace,
+      name: this.name
+    })
+    this.contents.push({
+      type: 'mnemonic',
+      value: this[MNEMONIC]
+    })
 
     this.keyPair = this.keyPairFor(this.idspace, this.name)
 
@@ -293,6 +298,16 @@ export class Identity extends EventEmitter {
   static fromEntropy (entropy, idspace, name, passphrase, rotation) {
     if (!entropy || !Buffer.isBuffer(entropy) || entropy.length !== RANDOMBYTES) throw new Error('Invalid entropy')
     return new Identity(idspace, name, passphrase, entropyToMnemonic(entropy.toString('hex')), rotation)
+  }
+
+  static fromEncrypted (encryptedContents, passphrase) {
+    const decrypted = deserialize(secretDecrypt(hash(passphrase), encryptedContents))
+    const info = decrypted.find(c => c.type === 'info')
+    const mnemonic = decrypted.find(c => c.type === 'mnemonic')
+    const identity = Identity.fromMnemonic(mnemonic.value, info.idspace, info.name, passphrase)
+    identity.contents = decrypted
+    identity.emit('change')
+    return identity
   }
 }
 
