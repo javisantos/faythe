@@ -27,7 +27,7 @@ export default [
       }),
       json(),
       commonjs(),
-
+      // builtins(),
       resolve({
         preferBuiltins: false,
         browser: true
@@ -45,11 +45,12 @@ export default [
           keep_infinity: true,
           module: true
         },
-        mangle: {
-          properties: {
-            regex: /^_/
-          }
-        }
+        mangle: false
+        // mangle: {
+        //   properties: {
+        //     regex: /^_/
+        //   }
+        // }
       }),
       gzipPlugin({
         customCompression: content => compress(Buffer.from(content)),

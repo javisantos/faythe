@@ -71,20 +71,22 @@ let alice, bob, charlie
     const unlockedkp = alice.keyPairFor('unlock')
     t.equal(unlockedkp.publicKey.length, 32, 'Should allow after unlock')
     t.equal(alice.publicKey.toString('hex'), prevPk, 'Should be the same')
-    console.log(alice.encryptedContents.length)
     t.end()
   })
 
   test('keyPairFor (' + env + ')', (t) => {
-    const kpf = alice.keyPairFor('test', 'alice', 0, { tags: ['test'], description: 'Keypair for idspace alice/test' })
+    const kpf = alice.keyPairFor('test', 'alice', { tags: ['test'], description: 'Keypair for idspace alice/test' })
     t.equal(kpf.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
-    const tags = alice.keyPairFor('personal', null, 0, { tags: ['personal'], description: 'Keypair for idspace alice/personal' })
+    const tags = alice.keyPairFor('personal', null, { tags: ['personal'], description: 'Keypair for idspace alice/personal' })
     t.deepEqual(tags.tags, ['keyPair', 'verification', 'personal'], 'Should add tags')
     try {
       alice.keyPairFor()
     } catch (error) {
       t.equal(error.message, 'Idspace is required', 'Should throw')
     }
+    const kpencoded = alice.keyPairFor(faythe.decode(kpf.idspace), 'alice')
+    t.equal(kpencoded.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same!!')
+    console.log(alice.contents)
     t.end()
   })
 

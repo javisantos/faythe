@@ -35,7 +35,10 @@ const ENTROPY = Symbol('ENTROPY')
 const MNEMONIC = Symbol('MNEMONIC')
 const PASSPHRASE = Symbol('PASSPHRASE')
 
-const encode = (buffer, encoder = ENCODER) => Buffer.from(multibase.encode(encoder, buffer)).toString('utf-8')
+const encode = (buffer, encoder = ENCODER) => {
+  if (!Buffer.isBuffer(buffer)) buffer = ensureBuffer(buffer)
+  return Buffer.from(multibase.encode(encoder, buffer)).toString('utf-8')
+}
 const decode = (bufOrString) => Buffer.from(multibase.decode(bufOrString))
 
 const serialize = cbor.encode
@@ -51,15 +54,6 @@ export function randomBytes (bytes) {
 
 export function ensureBuffer (data) {
   return Buffer.isBuffer(data) ? data : Buffer.from(data)
-}
-
-export function isIdspace (buffer) {
-  if (!Buffer.isBuffer(buffer)) return false
-  return multicodec.getCodec(buffer) === 'path' && buffer.length === 33
-}
-
-export function toIdSpace (buffer) {
-  return Buffer.from(multicodec.addPrefix('path', hash(ensureBuffer(buffer))))
 }
 
 const authEncryptErrorHandler = function (args) {
@@ -97,20 +91,13 @@ export class Identity extends EventEmitter {
       value: this[MNEMONIC]
     })
 
-    this.idspace = idspace
-      ? isIdspace(idspace) ? idspace : toIdSpace(idspace)
-      : Buffer.from(multicodec.addPrefix('path', hash(Buffer.alloc(0))))
+    this.idspace = idspace ? ensureBuffer(idspace) : Buffer.from(multicodec.addPrefix('path', hash(Buffer.from('idspace'))))
 
-    this[MASTERKEY] = derive(this[SEED], this.idspace, 'master')
+    this[MASTERKEY] = deriveFromKey(derive(this[SEED], this.idspace, 'master'), this.rotation, '_faythe_')
 
-    this.masterKeyPair = this.keyPairFor(this.idspace, 'master', this.rotation, { description: `Master KeyPair for ${encode(this.idspace)}` })
-    this.masterId = hashBatch([this.idspace, this.masterKeyPair.publicKey])
+    this.name = name || 'default'
 
-    this.name = name || 'master'
-
-    this.keyPair = this.name === 'master'
-      ? this.masterKeyPair
-      : this.keyPairFor(this.idspace, this.name, this.rotation)
+    this.keyPair = this.keyPairFor(this.idspace, this.name)
 
     this[ROTATIONKEY] = hash(generateKeyPair(deriveFromKey(this[SEED], this.rotation + 1, '_faythe_')).publicKey)
 
@@ -126,15 +113,17 @@ export class Identity extends EventEmitter {
     this.setMaxListeners(0)
   }
 
-  keyPairFor (space, name, rotation = 0, info = {}) {
+  keyPairFor (space, name, info = {}) {
     if (!space) throw new Error('Idspace is required')
-    space = isIdspace(space) ? space : toIdSpace(space)
     name = name || this.name
+
+    space = ensureBuffer(space)
+
     if (!this.locked) {
       let exist = false
 
       exist = this.contents.find(c => {
-        if (c.idspace === encode(ensureBuffer(space)) && c.name === name) {
+        if (c.idspace === encode(space) && c.name === name) {
           return true
         } else {
           return false
@@ -142,15 +131,14 @@ export class Identity extends EventEmitter {
       })
       if (exist) return exist
       const tags = info.tags ? ['keyPair', 'verification'].concat(info.tags) : ['keyPair', 'verification']
-      const keyPair = generateKeyPair(deriveFromKey(derive(this[MASTERKEY], space, name), rotation, '_faythe_'))
+      const keyPair = generateKeyPair(derive(this.masterKey, space, name))
       const description = info.description || `KeyPair for ${encode(space)}  with name ${name}`
 
       const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
         id,
         type: VERIFICATIONKEYTYPE,
-        idspace: encode(this.idspace),
-        childspace: encode(space) === encode(this.idspace) ? null : space,
+        idspace: encode(space),
         name,
         description,
         tags,
@@ -238,6 +226,10 @@ export class Identity extends EventEmitter {
 
   get locked () {
     return this._locked
+  }
+
+  get masterKey () {
+    return this[MASTERKEY]
   }
 
   get entropy () {

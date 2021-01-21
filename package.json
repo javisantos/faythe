@@ -11,6 +11,7 @@
   },
   "main": "index.js",
   "module": "main.js",
+  "browser": "./dist/faythe.js",
   "scripts": {
     "test": "tape -r esm test/v1.js | tap-spec",
     "coverage": "rimraf node_modules/.cache && nyc --reporter=text-summary --reporter=html tape test/v1.js",
