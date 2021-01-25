@@ -53,7 +53,7 @@ let alice, bob, charlie
   })
 
   test('fromSeedPhrase (' + env + ')', (t) => {
-    const seedPhrase = faythe.entropyToMnemonic(alice.seed)
+    const seedPhrase = alice.seedPhrase
     const alice2 = faythe.Identity.fromSeedPhrase(seedPhrase, 'test', 'alice')
     t.equal(alice2.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
     t.end()

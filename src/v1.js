@@ -34,6 +34,7 @@ const SEED = Symbol('SEED')
 const ENTROPY = Symbol('ENTROPY')
 const MNEMONIC = Symbol('MNEMONIC')
 const PASSPHRASE = Symbol('PASSPHRASE')
+const SEEDPHRASE = Symbol('SEEDPHRASE')
 
 const encode = (buffer, encoder = ENCODER) => {
   if (!Buffer.isBuffer(buffer)) buffer = ensureBuffer(buffer)
@@ -86,7 +87,7 @@ export class Identity extends EventEmitter {
     this[MNEMONIC] = seed ? null : mnemonic || generateMnemonic(256, randomBytes)
     this[ENTROPY] = seed ? null : Buffer.from(mnemonicToEntropy(this[MNEMONIC]), 'hex')
     this[SEED] = seed || Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
-
+    this[SEEDPHRASE] = entropyToMnemonic(this[SEED])
     this.idspace = idspace ? ensureBuffer(idspace) : Buffer.from(multicodec.addPrefix('path', hash(Buffer.from('idspace'))))
 
     this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_faythe_')
@@ -243,6 +244,10 @@ export class Identity extends EventEmitter {
     return this[SEED]
   }
 
+  get seedPhrase () {
+    return this[SEEDPHRASE]
+  }
+
   get rotationKey () {
     return this[ROTATIONKEY]
   }
@@ -254,6 +259,7 @@ export class Identity extends EventEmitter {
     this.masterKeyPair = null
     this[MNEMONIC] = null
     this[PASSPHRASE] = null
+    this[SEEDPHRASE] = null
     sodium.sodium_memzero(this[MASTERKEY])
     sodium.sodium_memzero(this[SEED])
     sodium.sodium_memzero(this[ENTROPY])
