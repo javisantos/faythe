@@ -1,7 +1,6 @@
 import sodium from 'sodium-universal'
 import cbor from 'borc'
 import { EventEmitter } from 'events'
-import { Buffer } from '../node_modules/safe-buffer'
 import multibase from 'multibase'
 import multicodec from 'multicodec'
 import canonicalize from 'canonicalize'
@@ -470,9 +469,7 @@ export function secretDecrypt (secretKey, ciphertext, nonce, ad = Buffer.alloc(0
 export function sign (myKeys, data, salt) {
   data = typeof data === 'object' && !Buffer.isBuffer(data) ? canonicalize(data) : data
   const dataHash = hash(Buffer.from(data))
-  const toSign = salt
-    ? Buffer.concat([salt, dataHash])
-    : dataHash
+  const toSign = Buffer.concat([salt || Buffer.alloc(0), dataHash])
 
   const signature = Buffer.alloc(sodium.crypto_sign_BYTES)
   sodium.crypto_sign_detached(signature, toSign, myKeys.privateKey)
@@ -484,11 +481,9 @@ export function verify (publicKey, data, signature, salt) {
   data = typeof data === 'object' && !Buffer.isBuffer(data) ? canonicalize(data) : data
 
   const dataHash = hash(Buffer.from(data))
-  const toVerify = salt
-    ? Buffer.concat([salt, dataHash])
-    : dataHash
+  const toVerify = Buffer.concat([salt || Buffer.alloc(0), dataHash])
 
-  return sodium.crypto_sign_verify_detached(signature, ensureBuffer(toVerify), publicKey)
+  return sodium.crypto_sign_verify_detached(signature, toVerify, publicKey)
 }
 
 export function packMessage (message, recipientPublicKeys, senderKeys, nonRepubiable = false) {
