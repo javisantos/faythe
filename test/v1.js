@@ -52,9 +52,9 @@ let alice, bob, charlie
     t.end()
   })
 
-  test('fromEncrypted (' + env + ')', (t) => {
-    const encryptedContent = alice.export()
-    const alice2 = faythe.Identity.fromEncrypted(encryptedContent, 'secret', 'test', 'alice')
+  test('fromSeedPhrase (' + env + ')', (t) => {
+    const seedPhrase = faythe.entropyToMnemonic(alice.seed)
+    const alice2 = faythe.Identity.fromSeedPhrase(seedPhrase, 'test', 'alice')
     t.equal(alice2.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
     t.end()
   })
@@ -66,6 +66,29 @@ let alice, bob, charlie
     t.equal(
       alice.keyPairFor(faythe.decode(c.idspace), c.name).publicKey.toString('hex'),
       alice.publicKey.toString('hex'), 'Should import and export')
+    t.end()
+  })
+
+  test('fromEncrypted (' + env + ')', (t) => {
+    const encryptedContent = alice.export()
+    const alice2 = faythe.Identity.fromEncrypted(encryptedContent, 'secret', 'test', 'alice')
+    t.equal(alice2.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
+    t.end()
+  })
+
+  test('fromEncrypted seeded (' + env + ')', (t) => {
+    const seedPhrase = faythe.entropyToMnemonic(alice.seed)
+    const alice2 = faythe.Identity.fromSeedPhrase(seedPhrase, 'test', 'alice', 'othersecret')
+    const encryptedContent = alice2.export()
+    const alice3 = faythe.Identity.fromEncrypted(encryptedContent, 'othersecret', 'test', 'alice')
+    t.equal(alice2.publicKey.toString('hex'), alice3.publicKey.toString('hex'), 'Should be the same')
+
+    const alice4 = faythe.Identity.fromSeed(alice3.seed, 'test', 'alice', 'othersecret')
+    t.equal(alice2.publicKey.toString('hex'), alice4.publicKey.toString('hex'), 'Should be the same')
+
+    t.equal(alice2.mnemonic, null, 'Seeded identity no mnemonic')
+    t.equal(alice2.entropy, null, 'Seeded identity no entropy')
+
     t.end()
   })
 
@@ -93,7 +116,13 @@ let alice, bob, charlie
     }
     const kpencoded = alice.keyPairFor(faythe.decode(kpf.idspace), 'alice')
     t.equal(kpencoded.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same!!')
-    console.log(alice.contents)
+    t.end()
+  })
+
+  test('rotation (' + env + ')', (t) => {
+    const rotationKey = alice.rotationKey.toString('hex')
+    const alice1 = faythe.Identity.fromEntropy(alice.entropy, 'test', 'alice', 'secret', 1)
+    t.equal(faythe.hash(alice1.publicKey).toString('hex'), rotationKey, 'Should be the same!!')
     t.end()
   })
 
@@ -383,7 +412,6 @@ let alice, bob, charlie
     const accept = bob.accept('alice', offer)
     alice.finish('bob', accept)
     t.equal(alice.contents.find((c) => c.name === 'bob').sharedKeys.tx.toString('hex'), bob.contents.find((c) => c.name === 'alice').sharedKeys.rx.toString('hex'), 'Should have same shared key')
-
     t.end()
   })
 })
