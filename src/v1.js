@@ -73,36 +73,41 @@ const secretEncryptErrorHandler = function (args) {
 }
 
 export class Identity extends EventEmitter {
-  constructor (idspace, name, passphrase, mnemonic, rotation, seed) {
+  constructor (idspace, opts = {}) {
+    // name, passphrase, mnemonic, rotation, seed
     super()
     this.contents = []
     this.encryptedContents = null
     this._locked = false
-    this.rotation = rotation || 0
-    this.seeded = !!seed
+    this.rotation = opts.rotation || 0
+    this.seeded = !!opts.seed
 
-    this[PASSPHRASE] = passphrase || ''
+    this[PASSPHRASE] = opts.passphrase || ''
 
-    this[MNEMONIC] = seed ? null : mnemonic || generateMnemonic(256, randomBytes)
-    this[ENTROPY] = seed ? null : Buffer.from(mnemonicToEntropy(this[MNEMONIC]), 'hex')
-    this[SEED] = seed || Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
+    this[MNEMONIC] = opts.seed ? null : opts.mnemonic || generateMnemonic(256, randomBytes)
+
+    this[ENTROPY] = opts.seed ? null : Buffer.from(mnemonicToEntropy(this[MNEMONIC]), 'hex')
+    this[SEED] = opts.seed || Buffer.from(mnemonicToSeedSync(this[MNEMONIC], this[PASSPHRASE]).slice(0, sodium.crypto_kdf_KEYBYTES))
+
     this[SEEDPHRASE] = entropyToMnemonic(this[SEED])
     this.idspace = idspace ? ensureBuffer(idspace) : Buffer.from(multicodec.addPrefix('path', hash(Buffer.from('idspace'))))
 
     this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_faythe_')
 
-    this.name = name || 'default'
+    this.name = opts.name || 'default'
 
     this.contents.push({
       type: 'metadata',
+      description: opts.description || `Identity for ${encode(this.idspace)} (${this.name})`,
+      tags: [].concat(opts.tags || []),
       idspace: this.idspace,
       name: this.name,
       rotation: this.rotation
     })
 
     this.contents.push({
-      type: seed ? 'seed' : 'mnemonic',
-      value: seed ? entropyToMnemonic(seed) : this[MNEMONIC]
+      type: opts.seed ? 'seed' : 'mnemonic',
+      value: opts.seed ? entropyToMnemonic(opts.seed) : this[MNEMONIC]
     })
 
     this.keyPair = this.keyPairFor(this.idspace, this.name)
@@ -110,9 +115,7 @@ export class Identity extends EventEmitter {
     this[ROTATIONKEY] = hash(generateKeyPair(derive(deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), this.idspace, this.name)).publicKey)
 
     this.on('change', () => this.export())
-
     this.emit('unlocked')
-
     this.emit('change')
 
     this.setMaxListeners(0)
@@ -128,7 +131,7 @@ export class Identity extends EventEmitter {
       const exist = this.contents.find(c => c.idspace === encode(space) && c.name === name)
       const tags = ['keyPair', 'verification'].concat(info.tags || [])
       const keyPair = generateKeyPair(derive(this.masterKey, space, name))
-      const description = info.description || `KeyPair for ${encode(space)} with name ${name}`
+      const description = info.description || `KeyPair for ${encode(space)} (${name})`
 
       const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
@@ -277,11 +280,7 @@ export class Identity extends EventEmitter {
   }
 
   unlock (passphrase) {
-    const contents = deserialize(secretDecrypt(hash(passphrase), this.encryptedContents))
-    const unlockedIdentity = Identity.fromMnemonic(contents.find(c => c.type === 'mnemonic').value, this.idspace, this.name, passphrase, this.rotation)
-    unlockedIdentity.contents = contents
-    this.emit('unlocked')
-    return unlockedIdentity
+    return Identity.restore(this.encryptedContents, passphrase)
   }
 
   toJson () {
@@ -295,41 +294,49 @@ export class Identity extends EventEmitter {
     }
   }
 
-  static fromMnemonic (mnemonic, idspace, name, passphrase, rotation) {
+  static fromMnemonic (idspace, mnemonic, opts = {}) {
     if (!mnemonic) throw new Error('Mnemonic is required')
-    return new Identity(idspace, name, passphrase, mnemonic, rotation)
+    opts.mnemonic = mnemonic
+    return new Identity(idspace, opts)
   }
 
-  static fromEntropy (entropy, idspace, name, passphrase, rotation) {
+  static fromEntropy (idspace, entropy, opts = {}) {
     if (!entropy || !Buffer.isBuffer(entropy) || entropy.length !== RANDOMBYTES) throw new Error('Invalid entropy')
-    return new Identity(idspace, name, passphrase, entropyToMnemonic(entropy.toString('hex')), rotation)
+    opts.mnemonic = entropyToMnemonic(entropy.toString('hex'))
+    return new Identity(idspace, opts)
   }
 
-  static fromSeedPhrase (seedPhrase, idspace, name, passphrase, rotation) {
-    const seed = Buffer.from(mnemonicToEntropy(seedPhrase), 'hex')
-    const identity = new Identity(idspace, name, passphrase, null, rotation, seed)
+  static fromSeedPhrase (idspace, seedPhrase, opts = {}) {
+    opts.seed = Buffer.from(mnemonicToEntropy(seedPhrase), 'hex')
+    const identity = new Identity(idspace, opts)
     return identity
   }
 
-  static fromSeed (seed, idspace, name, passphrase, rotation) {
-    const identity = new Identity(idspace, name, passphrase, null, rotation, seed)
+  static fromSeed (idspace, seed, opts = {}) {
+    opts.seed = seed
+    const identity = new Identity(idspace, opts)
     return identity
   }
 
-  static fromEncrypted (encryptedContents, passphrase) {
+  static restore (encryptedContents, passphrase) {
     const decrypted = deserialize(secretDecrypt(hash(passphrase), encryptedContents))
     const metadata = decrypted.find(c => c.type === 'metadata')
     const mnemonic = decrypted.find(c => c.type === 'mnemonic')
     const seed = decrypted.find(c => c.type === 'seed')
     let identity
-    if (seed && !mnemonic) {
-      identity = Identity.fromSeedPhrase(seed.value, metadata.idspace, metadata.name, passphrase)
-    } else {
-      identity = Identity.fromMnemonic(mnemonic.value, metadata.idspace, metadata.name, passphrase)
-      identity.contents = decrypted
-      identity.emit('change')
+    const idspace = metadata.idspace
+    const opts = {
+      name: metadata.name,
+      rotation: metadata.rotation,
+      passphrase
     }
-
+    if (seed && !mnemonic) {
+      identity = Identity.fromSeedPhrase(idspace, seed.value, opts)
+    } else {
+      identity = Identity.fromMnemonic(idspace, mnemonic.value, opts)
+    }
+    identity.contents = decrypted
+    identity.emit('change')
     return identity
   }
 }
