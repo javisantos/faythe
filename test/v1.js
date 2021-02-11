@@ -12,30 +12,30 @@ let alice, bob, charlie
   })
 
   test('Init (' + env + ')', async (t) => {
-    alice = alice || new faythe.Identity('test', { name: 'alice', passphrase: 'secret' })
+    alice = alice || new faythe.Identity('test', { namespace: 'alice', passphrase: 'secret' })
 
     bob = bob || new faythe.Identity()
-    charlie = charlie || new faythe.Identity('test', { name: 'charlie', rotation: 1 })
+    charlie = charlie || new faythe.Identity('test', { namespace: 'charlie', rotation: 1 })
     t.end()
   })
 
   test('fromMnemonic (' + env + ')', (t) => {
-    const alice2 = faythe.Identity.fromMnemonic('test', alice.mnemonic, { name: 'alice', passphrase: 'secret' })
+    const alice2 = faythe.Identity.fromMnemonic('test', alice.mnemonic, { namespace: 'alice', passphrase: 'secret' })
     t.equal(alice.publicKey.toString('hex'), alice2.publicKey.toString('hex'), 'Should be the same')
     t.equal(alice.privateKey.toString('hex'), alice2.secretKey.toString('hex'), 'Should be the same')
 
     const bob2 = faythe.Identity.fromMnemonic(null, bob.mnemonic)
     t.equal(bob.publicKey.toString('hex'), bob2.publicKey.toString('hex'), 'Should be the same')
 
-    const charlie2 = faythe.Identity.fromMnemonic('test', charlie.mnemonic, { name: 'charlie', rotation: 1 })
+    const charlie2 = faythe.Identity.fromMnemonic('test', charlie.mnemonic, { namespace: 'charlie', rotation: 1 })
     t.equal(charlie.publicKey.toString('hex'), charlie2.publicKey.toString('hex'), 'Should be the same')
     t.end()
   })
 
   test('fromEntropy (' + env + ')', (t) => {
-    const alice3 = faythe.Identity.fromEntropy('test', alice.entropy, { name: 'alice', passphrase: 'secret' })
+    const alice3 = faythe.Identity.fromEntropy('test', alice.entropy, { namespace: 'alice', passphrase: 'secret' })
     t.equal(alice.publicKey.toString('hex'), alice3.publicKey.toString('hex'), 'Should be the same')
-    const alice4 = faythe.Identity.fromMnemonic('test', alice3.mnemonic, { name: 'alice', passphrase: 'secret' })
+    const alice4 = faythe.Identity.fromMnemonic('test', alice3.mnemonic, { namespace: 'alice', passphrase: 'secret' })
     t.equal(alice3.publicKey.toString('hex'), alice4.publicKey.toString('hex'), 'Should be the same')
     try {
       const _ = faythe.Identity.fromMnemonic(null)
@@ -54,7 +54,7 @@ let alice, bob, charlie
 
   test('fromSeedPhrase (' + env + ')', (t) => {
     const seedPhrase = alice.seedPhrase
-    const alice2 = faythe.Identity.fromSeedPhrase('test', seedPhrase, { name: 'alice' })
+    const alice2 = faythe.Identity.fromSeedPhrase('test', seedPhrase, { namespace: 'alice' })
     t.equal(alice2.publicKey.toString('hex'), alice.publicKey.toString('hex'), 'Should be the same')
     t.end()
   })
@@ -62,9 +62,9 @@ let alice, bob, charlie
   test('export (' + env + ')', (t) => {
     const exported = alice.export()
     const imported = alice.import(exported)
-    const c = imported.find((c) => c.name === 'alice' && c.type === 'Ed25519VerificationKey2018')
+    const c = imported.find((c) => c.namespace === 'alice' && c.type === 'Ed25519VerificationKey2018')
     t.equal(
-      alice.keyPairFor(faythe.decode(c.idspace), c.name).publicKey.toString('hex'),
+      alice.keyPairFor(faythe.decode(c.idspace), c.namespace).publicKey.toString('hex'),
       alice.publicKey.toString('hex'), 'Should import and export')
     t.end()
   })
@@ -78,12 +78,12 @@ let alice, bob, charlie
 
   test('restore seeded (' + env + ')', (t) => {
     const seedPhrase = faythe.entropyToMnemonic(alice.seed)
-    const alice2 = faythe.Identity.fromSeedPhrase('test', seedPhrase, { name: 'alice', passphrase: 'othersecret' })
+    const alice2 = faythe.Identity.fromSeedPhrase('test', seedPhrase, { namespace: 'alice', passphrase: 'othersecret' })
     const encryptedContent = alice2.export()
     const alice3 = faythe.Identity.restore(encryptedContent, 'othersecret')
     t.equal(alice2.publicKey.toString('hex'), alice3.publicKey.toString('hex'), 'Should be the same')
 
-    const alice4 = faythe.Identity.fromSeed('test', alice3.seed, { name: 'alice', passphrase: 'othersecret' })
+    const alice4 = faythe.Identity.fromSeed('test', alice3.seed, { namespace: 'alice', passphrase: 'othersecret' })
     t.equal(alice2.publicKey.toString('hex'), alice4.publicKey.toString('hex'), 'Should be the same')
 
     t.equal(alice2.mnemonic, null, 'Seeded identity no mnemonic')
@@ -121,7 +121,7 @@ let alice, bob, charlie
 
   test('rotation (' + env + ')', (t) => {
     const rotationKey = alice.rotationKey.toString('hex')
-    const alice1 = faythe.Identity.fromEntropy('test', alice.entropy, { name: 'alice', passphrase: 'secret', rotation: 1 })
+    const alice1 = faythe.Identity.fromEntropy('test', alice.entropy, { namespace: 'alice', passphrase: 'secret', rotation: 1 })
     t.equal(faythe.hash(alice1.publicKey).toString('hex'), rotationKey, 'Should be the same!!')
     t.end()
   })
@@ -411,7 +411,7 @@ let alice, bob, charlie
     const { offer } = alice.offer('bob')
     const accept = bob.accept('alice', offer)
     alice.finish('bob', accept)
-    t.equal(alice.contents.find((c) => c.name === 'bob').sharedKeys.tx.toString('hex'), bob.contents.find((c) => c.name === 'alice').sharedKeys.rx.toString('hex'), 'Should have same shared key')
+    t.equal(alice.contents.find((c) => c.namespace === 'bob').sharedKeys.tx.toString('hex'), bob.contents.find((c) => c.namespace === 'alice').sharedKeys.rx.toString('hex'), 'Should have same shared key')
     t.end()
   })
 })

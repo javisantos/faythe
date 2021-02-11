@@ -74,7 +74,7 @@ const secretEncryptErrorHandler = function (args) {
 
 export class Identity extends EventEmitter {
   constructor (idspace, opts = {}) {
-    // name, passphrase, mnemonic, rotation, seed
+    // namespace, passphrase, mnemonic, rotation, seed
     super()
     this.contents = []
     this.encryptedContents = null
@@ -94,14 +94,14 @@ export class Identity extends EventEmitter {
 
     this[MASTERKEY] = deriveFromKey(this[SEED], this.rotation, '_faythe_')
 
-    this.name = opts.name || 'default'
+    this.namespace = opts.namespace || 'default'
 
     this.contents.push({
       type: 'metadata',
-      description: opts.description || `Identity for ${encode(this.idspace)} (${this.name})`,
+      description: opts.description || `Identity for ${encode(this.idspace)} (${this.namespace})`,
       tags: [].concat(opts.tags || []),
       idspace: this.idspace,
-      name: this.name,
+      namespace: this.namespace,
       rotation: this.rotation
     })
 
@@ -110,9 +110,9 @@ export class Identity extends EventEmitter {
       value: opts.seed ? entropyToMnemonic(opts.seed) : this[MNEMONIC]
     })
 
-    this.keyPair = this.keyPairFor(this.idspace, this.name)
+    this.keyPair = this.keyPairFor(this.idspace, this.namespace)
 
-    this[ROTATIONKEY] = hash(generateKeyPair(derive(deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), this.idspace, this.name)).publicKey)
+    this[ROTATIONKEY] = hash(generateKeyPair(derive(deriveFromKey(this[SEED], this.rotation + 1, '_faythe_'), this.idspace, this.namespace)).publicKey)
 
     this.on('change', () => this.export())
     this.emit('unlocked')
@@ -121,24 +121,24 @@ export class Identity extends EventEmitter {
     this.setMaxListeners(0)
   }
 
-  keyPairFor (space, name, info = {}) {
+  keyPairFor (space, namespace, info = {}) {
     if (!space) throw new Error('Idspace is required')
-    name = name || this.name
+    namespace = namespace || this.namespace
 
     space = ensureBuffer(space)
 
     if (!this.locked) {
-      const exist = this.contents.find(c => c.idspace === encode(space) && c.name === name)
+      const exist = this.contents.find(c => c.idspace === encode(space) && c.namespace === namespace)
       const tags = ['keyPair', 'verification'].concat(info.tags || [])
-      const keyPair = generateKeyPair(derive(this.masterKey, space, name))
-      const description = info.description || `KeyPair for ${encode(space)} (${name})`
+      const keyPair = generateKeyPair(derive(this.masterKey, space, namespace))
+      const description = info.description || `KeyPair for ${encode(space)} (${namespace})`
 
       const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
         id,
         type: VERIFICATIONKEYTYPE,
         idspace: encode(space),
-        name,
+        namespace,
         description,
         tags,
         rotation: this.rotation
@@ -164,7 +164,7 @@ export class Identity extends EventEmitter {
     this.contents.push({
       id,
       type: 'connection',
-      name: id,
+      namespace: id,
       offer,
       state,
       status: 'offered'
@@ -183,7 +183,7 @@ export class Identity extends EventEmitter {
     this.contents.push({
       id,
       type: 'connection',
-      name: id,
+      namespace: id,
       offer: offer,
       sharedKeys,
       keyPair,
@@ -195,7 +195,7 @@ export class Identity extends EventEmitter {
   }
 
   finish (id, accept, state) {
-    const restoreState = state || this.contents.find((c) => c.name === id).state
+    const restoreState = state || this.contents.find((c) => c.namespace === id).state
     const hs = noise.initialize('NN', true, Buffer.alloc(0), null, { publicKey: restoreState.epk, secretKey: restoreState.esk })
     hs.symmetricState = restoreState.symmetricState
     hs.messagePatterns.shift()
@@ -326,7 +326,7 @@ export class Identity extends EventEmitter {
     let identity
     const idspace = metadata.idspace
     const opts = {
-      name: metadata.name,
+      namespace: metadata.namespace,
       rotation: metadata.rotation,
       passphrase
     }
@@ -365,11 +365,11 @@ export function sha256 (data) {
   return b
 }
 
-export function derive (key, namespace, name) {
+export function derive (key, idspace, namespace) {
   const derived = Buffer.alloc(RANDOMBYTES)
   sodium.crypto_generichash_batch(derived, [
-    Buffer.from(Buffer.byteLength(namespace, 'ascii') + '\n' + namespace, 'ascii'),
-    ensureBuffer(name)
+    Buffer.from(Buffer.byteLength(idspace, 'ascii') + '\n' + idspace, 'ascii'),
+    ensureBuffer(namespace)
   ], key)
 
   return derived
