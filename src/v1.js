@@ -121,23 +121,23 @@ export class Identity extends EventEmitter {
     this.setMaxListeners(0)
   }
 
-  keyPairFor (space, namespace, info = {}) {
-    if (!space) throw new Error('Idspace is required')
+  keyPairFor (idspace, namespace, info = {}) {
+    if (!idspace) throw new Error('Idspace is required')
     namespace = namespace || this.namespace
 
-    space = ensureBuffer(space)
+    idspace = ensureBuffer(idspace)
 
     if (!this.locked) {
-      const exist = this.contents.find(c => c.idspace === encode(space) && c.namespace === namespace)
+      const exist = this.contents.find(c => c.idspace === encode(idspace) && c.namespace === namespace)
       const tags = ['keyPair', 'verification'].concat(info.tags || [])
-      const keyPair = generateKeyPair(derive(this.masterKey, space, namespace))
-      const description = info.description || `KeyPair for ${encode(space)} (${namespace})`
+      const keyPair = generateKeyPair(derive(this.masterKey, idspace, namespace))
+      const description = info.description || `KeyPair for ${encode(idspace)} (${namespace})`
 
       const id = 'did:key:' + encode(multicodec.addPrefix('ed25519-pub', keyPair.publicKey), 'base58btc')
       const kp = {
         id,
         type: VERIFICATIONKEYTYPE,
-        idspace: encode(space),
+        idspace: encode(idspace),
         namespace,
         description,
         tags,
@@ -264,7 +264,9 @@ export class Identity extends EventEmitter {
     this[SEEDPHRASE] = null
     sodium.sodium_memzero(this[MASTERKEY])
     sodium.sodium_memzero(this[SEED])
-    sodium.sodium_memzero(this[ENTROPY])
+    if (this[ENTROPY]) {
+      sodium.sodium_memzero(this[ENTROPY])
+    }
     this._locked = true
     this.emit('locked')
   }
