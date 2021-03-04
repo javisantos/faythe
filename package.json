@@ -25,7 +25,7 @@
     "borc": "^2.1.2",
     "canonicalize": "^1.0.5",
     "esm": "^3.2.25",
-    "multibase": "^3.1.0",
+    "multibase": "^4.0.2",
     "multicodec": "^2.1.0",
     "noise-protocol": "^3.0.1",
     "sodium-universal": "^3.0.3"
