@@ -6,6 +6,9 @@ import multicodec from 'multicodec'
 import canonicalize from 'canonicalize'
 import { generateMnemonic, mnemonicToSeedSync, entropyToMnemonic, mnemonicToEntropy } from 'bip39'
 import noise from 'noise-protocol'
+import blake2b from 'blake2b'
+import sha512 from 'sha512-universal'
+import { Buffer } from 'buffer'
 
 export const PROTOCOL = 'FAYTHE'
 export const VERSION = '1.0'
@@ -54,6 +57,18 @@ export function randomBytes (bytes) {
 
 export function ensureBuffer (data) {
   return Buffer.isBuffer(data) ? data : Buffer.from(data)
+}
+
+export async function ready (data) {
+  return new Promise(resolve => {
+    blake2b.ready(err => {
+      console.log('READY', err, blake2b.WASM_LOADED)
+      sha512.ready(err => {
+        console.log('READY', err, sha512.WASM_LOADED)
+        resolve()
+      })
+    })
+  })
 }
 
 const authEncryptErrorHandler = function (args) {
@@ -354,11 +369,14 @@ export function generateKeyPair (seed = randomBytes(RANDOMBYTES)) {
 }
 
 export function hash (data, bytes, key) {
+  // blake2b.ready(err => {
+  //   if (err) { console.log(err) }
   if (Array.isArray(data)) data = data.map(d => ensureBuffer(d))
   const b = Buffer.alloc(bytes || HASHBYTES)
   if (key) sodium.crypto_generichash(b, ensureBuffer(data), key)
   else sodium.crypto_generichash(b, ensureBuffer(data))
   return b
+  // })
 }
 
 export function sha256 (data) {

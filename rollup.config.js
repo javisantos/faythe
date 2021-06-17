@@ -4,7 +4,7 @@ import nodePolyfills from 'rollup-plugin-node-polyfills'
 // import builtins from 'rollup-plugin-node-polyfills'
 // import replace from '@rollup/plugin-replace'
 import json from '@rollup/plugin-json'
-import globals from 'rollup-plugin-node-globals'
+// import globals from 'rollup-plugin-node-globals'
 import { terser } from 'rollup-plugin-terser'
 import alias from 'rollup-plugin-alias'
 import { compress } from 'brotli'
@@ -33,7 +33,7 @@ export default [
         preferBuiltins: false,
         browser: true
       }),
-      globals(),
+      // globals(),
 
       terser({
         output: {
