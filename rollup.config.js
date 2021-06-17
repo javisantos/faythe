@@ -28,12 +28,13 @@ export default [
       json(),
       commonjs(),
       // builtins(),
+      nodePolyfills(),
       resolve({
         preferBuiltins: false,
         browser: true
       }),
       globals(),
-      nodePolyfills(),
+
       terser({
         output: {
           comments: false

@@ -28,7 +28,12 @@
     "multibase": "^4.0.4",
     "multicodec": "^3.0.1",
     "noise-protocol": "^3.0.1",
-    "sodium-universal": "^3.0.4"
+    "sha256-universal": "^1.1.2",
+    "sha256-wasm": "^2.2.1",
+    "sha512-universal": "^1.1.2",
+    "sha512-wasm": "^2.3.1",
+    "sodium-universal": "^3.0.4",
+    "blake2b-wasm": "^2.2.0"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^19.0.0",
